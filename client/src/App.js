@@ -66,6 +66,19 @@ function App() {
   const [tempFiles, setTempFiles] = useState([]);
   const [imageNaturalSize, setImageNaturalSize] = useState({ width: 0, height: 0 });
   
+  // Undo System
+  const [deletedItem, setDeletedItem] = useState(null);
+  const [undoTimer, setUndoTimer] = useState(null);
+
+  // Modal Blink Animation
+  const [blinkingModal, setBlinkingModal] = useState(null);
+
+  // Dirty Form Tracking
+  const [isEmployeeFormDirty, setIsEmployeeFormDirty] = useState(false);
+  const [isReportFormDirty, setIsReportFormDirty] = useState(false);
+  const [isEditFormDirty, setIsEditFormDirty] = useState(false);
+  const [isQuickFormDirty, setIsQuickFormDirty] = useState(false);
+  
   // Filters
   const [filters, setFilters] = useState({
     employee_id: '',
@@ -198,6 +211,60 @@ function App() {
     };
   }, [isDragging, isResizing, cropRect, dragStart, resizeHandle]);
 
+  // Track Employee Form Changes
+  useEffect(() => {
+    const hasChanges = 
+      employeeForm.name !== '' ||
+      employeeForm.email !== '' ||
+      employeeForm.role !== '';
+    setIsEmployeeFormDirty(hasChanges);
+  }, [employeeForm]);
+
+  // Track Report Form Changes
+  useEffect(() => {
+    const hasChanges = 
+      reportForm.employee_id !== '' ||
+      reportForm.hours !== '' ||
+      reportForm.project !== '' ||
+      reportForm.description !== '' ||
+      reportForm.screenshots.length > 0;
+    setIsReportFormDirty(hasChanges);
+  }, [reportForm]);
+
+  // Track Quick Form Changes
+  useEffect(() => {
+    const hasChanges = 
+      quickForm.employee_id !== '' ||
+      quickForm.hours !== '' ||
+      quickForm.project !== '';
+    setIsQuickFormDirty(hasChanges);
+  }, [quickForm]);
+
+  // Track Edit Form Changes
+  useEffect(() => {
+    if (!editingReport) {
+      setIsEditFormDirty(false);
+      return;
+    }
+    
+    const hasChanges = 
+      reportForm.employee_id !== editingReport.employee_id.toString() ||
+      reportForm.hours !== editingReport.hours.toString() ||
+      reportForm.project !== (editingReport.project || '') ||
+      reportForm.description !== (editingReport.description || '') ||
+      reportForm.screenshots.length > 0;
+    setIsEditFormDirty(hasChanges);
+  }, [reportForm, editingReport]);
+
+  // Cleanup undo timer on unmount
+  useEffect(() => {
+    return () => {
+      if (undoTimer) {
+        clearTimeout(undoTimer);
+      }
+    };
+  }, [undoTimer]);
+
   const fetchEmployees = async () => {
     try {
       const response = await axios.get(`${API_URL}/employees`);
@@ -243,11 +310,147 @@ function App() {
     }
   };
 
+  // Undo System
+  const performDelete = async (type, id) => {
+    try {
+      if (type === 'employee') {
+        await axios.delete(`${API_URL}/employees/${id}`);
+        fetchEmployees();
+        fetchStats();
+      } else if (type === 'report') {
+        await axios.delete(`${API_URL}/reports/${id}`);
+        fetchReports();
+        fetchStats();
+      }
+    } catch (error) {
+      alert(`Error deleting ${type}`);
+    }
+  };
+
+  const handleDeleteWithUndo = (type, id, item) => {
+    // Remove from UI immediately
+    if (type === 'employee') {
+      setEmployees(prev => prev.filter(e => e.id !== id));
+    } else if (type === 'report') {
+      setReports(prev => prev.filter(r => r.id !== id));
+      setSelectedReports(prev => prev.filter(rid => rid !== id));
+    }
+
+    // Setup undo with 5 second timer
+    const timer = setTimeout(() => {
+      performDelete(type, id);
+      setDeletedItem(null);
+    }, 5000);
+
+    setDeletedItem({ type, id, item, timer });
+    setUndoTimer(timer);
+  };
+
+  const handleUndo = () => {
+    if (!deletedItem) return;
+
+    // Cancel deletion
+    clearTimeout(deletedItem.timer);
+
+    // Restore item to UI
+    if (deletedItem.type === 'employee') {
+      setEmployees(prev => [...prev, deletedItem.item]);
+      fetchEmployees(); // Refresh to ensure consistency
+    } else if (deletedItem.type === 'report') {
+      setReports(prev => [...prev, deletedItem.item]);
+      fetchReports(); // Refresh to ensure consistency
+    }
+
+    setDeletedItem(null);
+    setUndoTimer(null);
+  };
+
+  // Modal Blink Animation
+  const handleModalClickOutside = (modalName) => {
+    setBlinkingModal(modalName);
+    setTimeout(() => setBlinkingModal(null), 400);
+  };
+
+  // Modal Close Handlers with Dirty Check
+  const handleCloseEmployeeModal = () => {
+    if (isEmployeeFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowEmployeeModal(false);
+    setEmployeeForm({ name: '', email: '', role: '' });
+    setIsEmployeeFormDirty(false);
+  };
+
+  const handleCloseReportModal = () => {
+    if (isReportFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowReportModal(false);
+    setReportForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      hours: '',
+      project: '',
+      description: '',
+      screenshots: []
+    });
+    setScreenshotPreviews([]);
+    setIsReportFormDirty(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCloseEditModal = () => {
+    if (isEditFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowEditReportModal(false);
+    setEditingReport(null);
+    setReportForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      hours: '',
+      project: '',
+      description: '',
+      screenshots: []
+    });
+    setScreenshotPreviews([]);
+    setIsEditFormDirty(false);
+    if (editFileInputRef.current) {
+      editFileInputRef.current.value = '';
+    }
+  };
+
+  const handleCloseQuickModal = () => {
+    if (isQuickFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowQuickAddModal(false);
+    setQuickForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      hours: '',
+      project: ''
+    });
+    setLastReport(null);
+    setIsQuickFormDirty(false);
+  };
+
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     try {
       await axios.post(`${API_URL}/employees`, employeeForm);
       setEmployeeForm({ name: '', email: '', role: '' });
+      setIsEmployeeFormDirty(false);
       setShowEmployeeModal(false);
       fetchEmployees();
       fetchStats();
@@ -257,14 +460,9 @@ function App() {
   };
 
   const handleDeleteEmployee = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this employee?')) return;
-    try {
-      await axios.delete(`${API_URL}/employees/${id}`);
-      fetchEmployees();
-      fetchStats();
-    } catch (error) {
-      alert('Error deleting employee');
-    }
+    const employee = employees.find(e => e.id === id);
+    if (!employee) return;
+    handleDeleteWithUndo('employee', id, employee);
   };
 
   const handleAddReport = async (e) => {
@@ -302,6 +500,7 @@ function App() {
         screenshots: []
       });
       setScreenshotPreviews([]);
+      setIsReportFormDirty(false);
       setShowReportModal(false);
       
       // Reset file input
@@ -318,14 +517,9 @@ function App() {
   };
 
   const handleDeleteReport = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this report?')) return;
-    try {
-      await axios.delete(`${API_URL}/reports/${id}`);
-      fetchReports();
-      fetchStats();
-    } catch (error) {
-      alert('Error deleting report');
-    }
+    const report = reports.find(r => r.id === id);
+    if (!report) return;
+    handleDeleteWithUndo('report', id, report);
   };
 
   const handleFileChange = (e) => {
@@ -438,6 +632,7 @@ function App() {
         screenshots: []
       });
       setScreenshotPreviews([]);
+      setIsEditFormDirty(false);
       setShowEditReportModal(false);
       setEditingReport(null);
       
@@ -671,6 +866,7 @@ function App() {
         project: ''
       });
       setLastReport(null);
+      setIsQuickFormDirty(false);
       setShowQuickAddModal(false);
       fetchReports();
       fetchStats();
@@ -1006,6 +1202,27 @@ function App() {
         @keyframes slideDown {
           from { transform: translateY(-100%); }
           to { transform: translateY(0); }
+        }
+        
+        @keyframes blink {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+          20%, 40%, 60%, 80% { transform: translateX(10px); }
+        }
+        
+        .modal-blink {
+          animation: blink 0.4s ease-in-out;
+        }
+        
+        @keyframes slideInRight {
+          from {
+            opacity: 0;
+            transform: translateX(100%);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
         }
         
         .header-content {
@@ -2849,11 +3066,11 @@ function App() {
 
       {/* Add Employee Modal */}
       {showEmployeeModal && (
-        <div className="modal-overlay" onClick={() => setShowEmployeeModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('employee')}>
+          <div className={`modal ${blinkingModal === 'employee' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Add New Employee</h3>
-              <button className="close-btn" onClick={() => setShowEmployeeModal(false)}>
+              <button className="close-btn" onClick={handleCloseEmployeeModal}>
                 <X size={20} />
               </button>
             </div>
@@ -2905,11 +3122,11 @@ function App() {
 
       {/* Add Report Modal */}
       {showReportModal && (
-        <div className="modal-overlay" onClick={() => setShowReportModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('report')}>
+          <div className={`modal ${blinkingModal === 'report' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Submit EOD Report</h3>
-              <button className="close-btn" onClick={() => setShowReportModal(false)}>
+              <button className="close-btn" onClick={handleCloseReportModal}>
                 <X size={20} />
               </button>
             </div>
@@ -3078,11 +3295,11 @@ function App() {
 
       {/* Edit Report Modal */}
       {showEditReportModal && editingReport && (
-        <div className="modal-overlay" onClick={() => { setShowEditReportModal(false); setEditingReport(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('edit')}>
+          <div className={`modal ${blinkingModal === 'edit' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Edit EOD Report</h3>
-              <button className="close-btn" onClick={() => { setShowEditReportModal(false); setEditingReport(null); }}>
+              <button className="close-btn" onClick={handleCloseEditModal}>
                 <X size={20} />
               </button>
             </div>
@@ -3308,8 +3525,8 @@ function App() {
 
       {/* View Report Modal */}
       {selectedReport && (
-        <div className="modal-overlay" onClick={() => setSelectedReport(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('view')}>
+          <div className={`modal ${blinkingModal === 'view' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Report Details</h3>
               <button className="close-btn" onClick={() => setSelectedReport(null)}>
@@ -3400,11 +3617,11 @@ function App() {
 
       {/* Quick Add Modal */}
       {showQuickAddModal && (
-        <div className="modal-overlay" onClick={() => setShowQuickAddModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('quick')}>
+          <div className={`modal ${blinkingModal === 'quick' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h3 className="modal-title">⚡ Quick EOD Entry</h3>
-              <button className="close-btn" onClick={() => setShowQuickAddModal(false)}>
+              <button className="close-btn" onClick={handleCloseQuickModal}>
                 <X size={20} />
               </button>
             </div>
@@ -3891,6 +4108,53 @@ function App() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Undo Toast */}
+      {deletedItem && (
+        <div style={{
+          position: 'fixed',
+          bottom: '2rem',
+          right: '2rem',
+          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          color: 'white',
+          padding: '1.25rem 1.5rem',
+          borderRadius: '16px',
+          boxShadow: '0 10px 40px rgba(16, 185, 129, 0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+          zIndex: 10000,
+          animation: 'slideInRight 0.3s ease-out',
+          minWidth: '300px'
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
+              ✓ {deletedItem.type === 'employee' ? 'Employee' : 'Report'} deleted
+            </div>
+            <div style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+              Click undo to restore
+            </div>
+          </div>
+          <button
+            onClick={handleUndo}
+            style={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              color: 'white',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+            onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+          >
+            Undo
+          </button>
         </div>
       )}
     </div>
