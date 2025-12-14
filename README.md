@@ -47,15 +47,17 @@ A comprehensive full-stack employee monitoring system for tracking End-of-Day (E
 ### Backend
 - **Node.js** - Runtime
 - **Express** - Web framework
-- **SQLite3** - Database
+- **PostgreSQL** - Database (migrated from SQLite)
 - **Multer** - File upload handling
 - **CORS** - Cross-origin resource sharing
+- **express-rate-limit** - API rate limiting
 
 ## Quick Start
 
 ### Prerequisites
 - Node.js (v14 or higher)
 - npm or yarn
+- PostgreSQL (v12 or higher) - for local development
 
 ### Installation
 
@@ -285,6 +287,29 @@ RATE_LIMIT_MAX_REQUESTS=100     # Max requests per window
 ⚠️ **Security headers** - Add helmet.js for security headers
 ⚠️ **Database encryption** - Encrypt sensitive data at rest
 
+## Deployment
+
+### Deploy to Render.com (Recommended)
+
+This app is configured for easy deployment to Render.com with PostgreSQL database.
+
+**Quick Deploy:**
+1. Push code to GitHub
+2. On Render dashboard, create a new "Blueprint"
+3. Connect your repository
+4. Render will automatically detect `render.yaml` and deploy
+
+**Detailed Instructions:**
+See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for complete deployment guide.
+
+### Deploy with Docker
+
+```bash
+docker-compose up
+```
+
+Access at `http://localhost:5000`
+
 ## Troubleshooting
 
 ### Port already in use
@@ -294,11 +319,11 @@ If port 5000 or 3000 is already in use:
 PORT=5001
 ```
 
-### Database locked error
-If you see "database is locked":
-- Stop all running instances
-- Delete `eod_reports.db`
-- Restart the server (database will be recreated)
+### Database connection error
+If you see "database connection failed":
+- Verify PostgreSQL is running
+- Check `DATABASE_URL` in .env file is correct
+- Ensure database exists: `createdb eod_monitor`
 
 ### File upload not working
 - Check uploads directory permissions
