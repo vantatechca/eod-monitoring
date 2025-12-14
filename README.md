@@ -157,6 +157,7 @@ The app will run on `http://localhost:5000`
 ### Employees
 - `GET /api/employees` - Get all employees
 - `GET /api/employees/:id` - Get single employee
+- `GET /api/employees/:id/last-report` - Get last report for employee
 - `POST /api/employees` - Create employee
 - `PUT /api/employees/:id` - Update employee
 - `DELETE /api/employees/:id` - Delete employee
@@ -167,6 +168,14 @@ The app will run on `http://localhost:5000`
 - `POST /api/reports` - Create report (multipart/form-data)
 - `PUT /api/reports/:id` - Update report
 - `DELETE /api/reports/:id` - Delete report
+- `POST /api/reports/bulk-delete` - Bulk delete reports
+
+### Projects
+- `GET /api/projects` - Get all distinct project names
+
+### Analytics
+- `GET /api/missing-eods` - Get employees who haven't submitted EODs
+- `GET /api/costs` - Get cost calculations by employee/project
 
 ### Statistics
 - `GET /api/stats` - Get dashboard statistics
@@ -205,6 +214,7 @@ eod-monitor/
 - name (TEXT)
 - email (TEXT UNIQUE)
 - role (TEXT)
+- hourly_rate (REAL) - Default: 0
 - created_at (DATETIME)
 
 ### eod_reports
@@ -212,6 +222,7 @@ eod-monitor/
 - employee_id (INTEGER)
 - date (DATE)
 - hours (REAL)
+- project (TEXT) - Project/app name
 - description (TEXT)
 - created_at (DATETIME)
 
@@ -220,18 +231,37 @@ eod-monitor/
 - report_id (INTEGER)
 - filename (TEXT)
 - filepath (TEXT)
+- caption (TEXT) - Optional caption for screenshot
 - uploaded_at (DATETIME)
 
 ## Configuration
 
 ### Environment Variables
 
-Create a `.env` file in the root directory:
+Create a `.env` file in the root directory (or copy from `.env.example`):
+
+```bash
+cp .env.example .env
+```
+
+Available environment variables:
 
 ```env
+# Server Configuration
 PORT=5000
 NODE_ENV=development
+
+# Frontend API URL (used by React app in production)
 REACT_APP_API_URL=http://localhost:5000/api
+
+# CORS Configuration
+# Leave empty for development (allows all origins)
+# In production, set to your frontend URL(s) - comma-separated
+ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+
+# Rate Limiting
+RATE_LIMIT_WINDOW_MS=900000     # 15 minutes in milliseconds
+RATE_LIMIT_MAX_REQUESTS=100     # Max requests per window
 ```
 
 ### File Upload Limits
@@ -241,15 +271,19 @@ REACT_APP_API_URL=http://localhost:5000/api
 
 ## Security Considerations
 
-For production deployment:
-1. Add authentication/authorization
-2. Implement rate limiting
-3. Add input validation and sanitization
-4. Use HTTPS
-5. Set up proper CORS policies
-6. Use environment variables for sensitive data
-7. Implement proper error handling
-8. Add request logging
+### Implemented
+✅ **Rate limiting** - Protects against DoS attacks (configurable via env vars)
+✅ **CORS policies** - Configurable for production environments
+✅ **Environment variables** - Sensitive configuration externalized
+✅ **Input validation** - File upload restrictions and data validation
+
+### Still Needed for Production
+⚠️ **Authentication/Authorization** - No user authentication currently
+⚠️ **HTTPS** - Must be configured at deployment level
+⚠️ **Request logging** - Add logging middleware for audit trails
+⚠️ **Input sanitization** - Enhanced SQL injection prevention
+⚠️ **Security headers** - Add helmet.js for security headers
+⚠️ **Database encryption** - Encrypt sensitive data at rest
 
 ## Troubleshooting
 
