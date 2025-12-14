@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { 
   Users, Clock, FileText, Download, Plus, X, 
   Upload, Calendar, Filter, ChevronDown, Trash2,
-  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit
+  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -15,6 +15,12 @@ function App() {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState([]);
+  
+  // File input refs
+  const fileInputRef = useRef(null);
+  const editFileInputRef = useRef(null);
+  const cropCanvasRef = useRef(null);
+  const cropImageRef = useRef(null);
   
   // Modals
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
@@ -47,6 +53,31 @@ function App() {
   
   // Productivity Insights
   const [insights, setInsights] = useState(null);
+
+  // Image Cropping
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState(null);
+  const [cropRect, setCropRect] = useState({ x: 50, y: 50, width: 200, height: 200 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [resizeHandle, setResizeHandle] = useState(null);
+  const [currentCroppingIndex, setCurrentCroppingIndex] = useState(0);
+  const [tempFiles, setTempFiles] = useState([]);
+  const [imageNaturalSize, setImageNaturalSize] = useState({ width: 0, height: 0 });
+  
+  // Undo System
+  const [deletedItem, setDeletedItem] = useState(null);
+  const [undoTimer, setUndoTimer] = useState(null);
+
+  // Modal Blink Animation
+  const [blinkingModal, setBlinkingModal] = useState(null);
+
+  // Dirty Form Tracking
+  const [isEmployeeFormDirty, setIsEmployeeFormDirty] = useState(false);
+  const [isReportFormDirty, setIsReportFormDirty] = useState(false);
+  const [isEditFormDirty, setIsEditFormDirty] = useState(false);
+  const [isQuickFormDirty, setIsQuickFormDirty] = useState(false);
   
   // Filters
   const [filters, setFilters] = useState({
@@ -116,6 +147,124 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showGallery, currentImageIndex, galleryImages]);
 
+  // Mouse handlers for crop box
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!cropImageRef.current) return;
+      
+      const imgRect = cropImageRef.current.getBoundingClientRect();
+      
+      if (isDragging) {
+        // Dragging the whole box
+        let newX = e.clientX - dragStart.x;
+        let newY = e.clientY - dragStart.y;
+        
+        // Constrain to image bounds
+        newX = Math.max(0, Math.min(newX, imgRect.width - cropRect.width));
+        newY = Math.max(0, Math.min(newY, imgRect.height - cropRect.height));
+        
+        setCropRect({ ...cropRect, x: newX, y: newY });
+      } else if (isResizing && resizeHandle) {
+        // Resizing the box
+        const deltaX = e.clientX - dragStart.x;
+        const deltaY = e.clientY - dragStart.y;
+        let newRect = { ...cropRect };
+        
+        if (resizeHandle.includes('e')) {
+          newRect.width = Math.max(50, Math.min(cropRect.width + deltaX, imgRect.width - cropRect.x));
+        }
+        if (resizeHandle.includes('w')) {
+          const newWidth = Math.max(50, cropRect.width - deltaX);
+          const newX = Math.max(0, cropRect.x + (cropRect.width - newWidth));
+          newRect.x = newX;
+          newRect.width = newWidth;
+        }
+        if (resizeHandle.includes('s')) {
+          newRect.height = Math.max(50, Math.min(cropRect.height + deltaY, imgRect.height - cropRect.y));
+        }
+        if (resizeHandle.includes('n')) {
+          const newHeight = Math.max(50, cropRect.height - deltaY);
+          const newY = Math.max(0, cropRect.y + (cropRect.height - newHeight));
+          newRect.y = newY;
+          newRect.height = newHeight;
+        }
+        
+        setCropRect(newRect);
+        setDragStart({ x: e.clientX, y: e.clientY });
+      }
+    };
+    
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizing(false);
+      setResizeHandle(null);
+    };
+    
+    if (isDragging || isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, isResizing, cropRect, dragStart, resizeHandle]);
+
+  // Track Employee Form Changes
+  useEffect(() => {
+    const hasChanges = 
+      employeeForm.name !== '' ||
+      employeeForm.email !== '' ||
+      employeeForm.role !== '';
+    setIsEmployeeFormDirty(hasChanges);
+  }, [employeeForm]);
+
+  // Track Report Form Changes
+  useEffect(() => {
+    const hasChanges = 
+      reportForm.employee_id !== '' ||
+      reportForm.hours !== '' ||
+      reportForm.project !== '' ||
+      reportForm.description !== '' ||
+      reportForm.screenshots.length > 0;
+    setIsReportFormDirty(hasChanges);
+  }, [reportForm]);
+
+  // Track Quick Form Changes
+  useEffect(() => {
+    const hasChanges = 
+      quickForm.employee_id !== '' ||
+      quickForm.hours !== '' ||
+      quickForm.project !== '';
+    setIsQuickFormDirty(hasChanges);
+  }, [quickForm]);
+
+  // Track Edit Form Changes
+  useEffect(() => {
+    if (!editingReport) {
+      setIsEditFormDirty(false);
+      return;
+    }
+    
+    const hasChanges = 
+      reportForm.employee_id !== editingReport.employee_id.toString() ||
+      reportForm.hours !== editingReport.hours.toString() ||
+      reportForm.project !== (editingReport.project || '') ||
+      reportForm.description !== (editingReport.description || '') ||
+      reportForm.screenshots.length > 0;
+    setIsEditFormDirty(hasChanges);
+  }, [reportForm, editingReport]);
+
+  // Cleanup undo timer on unmount
+  useEffect(() => {
+    return () => {
+      if (undoTimer) {
+        clearTimeout(undoTimer);
+      }
+    };
+  }, [undoTimer]);
+
   const fetchEmployees = async () => {
     try {
       const response = await axios.get(`${API_URL}/employees`);
@@ -161,11 +310,147 @@ function App() {
     }
   };
 
+  // Undo System
+  const performDelete = async (type, id) => {
+    try {
+      if (type === 'employee') {
+        await axios.delete(`${API_URL}/employees/${id}`);
+        fetchEmployees();
+        fetchStats();
+      } else if (type === 'report') {
+        await axios.delete(`${API_URL}/reports/${id}`);
+        fetchReports();
+        fetchStats();
+      }
+    } catch (error) {
+      alert(`Error deleting ${type}`);
+    }
+  };
+
+  const handleDeleteWithUndo = (type, id, item) => {
+    // Remove from UI immediately
+    if (type === 'employee') {
+      setEmployees(prev => prev.filter(e => e.id !== id));
+    } else if (type === 'report') {
+      setReports(prev => prev.filter(r => r.id !== id));
+      setSelectedReports(prev => prev.filter(rid => rid !== id));
+    }
+
+    // Setup undo with 5 second timer
+    const timer = setTimeout(() => {
+      performDelete(type, id);
+      setDeletedItem(null);
+    }, 5000);
+
+    setDeletedItem({ type, id, item, timer });
+    setUndoTimer(timer);
+  };
+
+  const handleUndo = () => {
+    if (!deletedItem) return;
+
+    // Cancel deletion
+    clearTimeout(deletedItem.timer);
+
+    // Restore item to UI
+    if (deletedItem.type === 'employee') {
+      setEmployees(prev => [...prev, deletedItem.item]);
+      fetchEmployees(); // Refresh to ensure consistency
+    } else if (deletedItem.type === 'report') {
+      setReports(prev => [...prev, deletedItem.item]);
+      fetchReports(); // Refresh to ensure consistency
+    }
+
+    setDeletedItem(null);
+    setUndoTimer(null);
+  };
+
+  // Modal Blink Animation
+  const handleModalClickOutside = (modalName) => {
+    setBlinkingModal(modalName);
+    setTimeout(() => setBlinkingModal(null), 400);
+  };
+
+  // Modal Close Handlers with Dirty Check
+  const handleCloseEmployeeModal = () => {
+    if (isEmployeeFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowEmployeeModal(false);
+    setEmployeeForm({ name: '', email: '', role: '' });
+    setIsEmployeeFormDirty(false);
+  };
+
+  const handleCloseReportModal = () => {
+    if (isReportFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowReportModal(false);
+    setReportForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      hours: '',
+      project: '',
+      description: '',
+      screenshots: []
+    });
+    setScreenshotPreviews([]);
+    setIsReportFormDirty(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCloseEditModal = () => {
+    if (isEditFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowEditReportModal(false);
+    setEditingReport(null);
+    setReportForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      hours: '',
+      project: '',
+      description: '',
+      screenshots: []
+    });
+    setScreenshotPreviews([]);
+    setIsEditFormDirty(false);
+    if (editFileInputRef.current) {
+      editFileInputRef.current.value = '';
+    }
+  };
+
+  const handleCloseQuickModal = () => {
+    if (isQuickFormDirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    setShowQuickAddModal(false);
+    setQuickForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      hours: '',
+      project: ''
+    });
+    setLastReport(null);
+    setIsQuickFormDirty(false);
+  };
+
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     try {
       await axios.post(`${API_URL}/employees`, employeeForm);
       setEmployeeForm({ name: '', email: '', role: '' });
+      setIsEmployeeFormDirty(false);
       setShowEmployeeModal(false);
       fetchEmployees();
       fetchStats();
@@ -175,22 +460,21 @@ function App() {
   };
 
   const handleDeleteEmployee = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this employee?')) return;
-    try {
-      await axios.delete(`${API_URL}/employees/${id}`);
-      fetchEmployees();
-      fetchStats();
-    } catch (error) {
-      alert('Error deleting employee');
-    }
+    const employee = employees.find(e => e.id === id);
+    if (!employee) return;
+    handleDeleteWithUndo('employee', id, employee);
   };
 
   const handleAddReport = async (e) => {
     e.preventDefault();
+    
+    // Convert hours to decimal format
+    const decimalHours = convertTimeToHours(reportForm.hours);
+    
     const formData = new FormData();
     formData.append('employee_id', reportForm.employee_id);
     formData.append('date', reportForm.date);
-    formData.append('hours', reportForm.hours);
+    formData.append('hours', decimalHours);
     formData.append('project', reportForm.project);
     formData.append('description', reportForm.description);
     
@@ -216,7 +500,14 @@ function App() {
         screenshots: []
       });
       setScreenshotPreviews([]);
+      setIsReportFormDirty(false);
       setShowReportModal(false);
+      
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
       fetchReports();
       fetchStats();
       fetchProjects();
@@ -226,28 +517,22 @@ function App() {
   };
 
   const handleDeleteReport = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this report?')) return;
-    try {
-      await axios.delete(`${API_URL}/reports/${id}`);
-      fetchReports();
-      fetchStats();
-    } catch (error) {
-      alert('Error deleting report');
-    }
+    const report = reports.find(r => r.id === id);
+    if (!report) return;
+    handleDeleteWithUndo('report', id, report);
   };
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    setReportForm({ ...reportForm, screenshots: files });
     
-    // Create previews
-    const previews = files.map((file, index) => ({
-      file,
-      url: URL.createObjectURL(file),
-      caption: '',
-      index
-    }));
-    setScreenshotPreviews(previews);
+    if (files.length === 0) return;
+    
+    // Store files temporarily and show cropping modal for first image
+    setTempFiles(files);
+    setCropImageSrc(URL.createObjectURL(files[0]));
+    setCurrentCroppingIndex(0);
+    setCropRect({ x: 50, y: 50, width: 200, height: 200 });
+    setShowCropModal(true);
   };
 
   const updateScreenshotCaption = (index, caption) => {
@@ -261,6 +546,14 @@ function App() {
     const updatedPreviews = screenshotPreviews.filter((_, i) => i !== index);
     setReportForm({ ...reportForm, screenshots: updatedFiles });
     setScreenshotPreviews(updatedPreviews);
+    
+    // Reset file input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    if (editFileInputRef.current) {
+      editFileInputRef.current.value = '';
+    }
   };
 
   const openGallery = (screenshots, startIndex = 0) => {
@@ -306,10 +599,14 @@ function App() {
 
   const handleUpdateReport = async (e) => {
     e.preventDefault();
+    
+    // Convert hours to decimal format
+    const decimalHours = convertTimeToHours(reportForm.hours);
+    
     const formData = new FormData();
     formData.append('employee_id', reportForm.employee_id);
     formData.append('date', reportForm.date);
-    formData.append('hours', reportForm.hours);
+    formData.append('hours', decimalHours);
     formData.append('project', reportForm.project);
     formData.append('description', reportForm.description);
     
@@ -335,8 +632,15 @@ function App() {
         screenshots: []
       });
       setScreenshotPreviews([]);
+      setIsEditFormDirty(false);
       setShowEditReportModal(false);
       setEditingReport(null);
+      
+      // Reset file input
+      if (editFileInputRef.current) {
+        editFileInputRef.current.value = '';
+      }
+      
       fetchReports();
       fetchStats();
       fetchProjects();
@@ -462,6 +766,51 @@ function App() {
     setAnalyticsFilters({...analyticsFilters, selected_projects: []});
   };
 
+  // Helper function to convert time format to decimal hours
+  const convertTimeToHours = (timeString) => {
+    if (!timeString) return '';
+    
+    // If it's already a number (decimal format), round it
+    if (!isNaN(timeString) && !timeString.includes(':')) {
+      return Math.round(parseFloat(timeString) * 100) / 100;
+    }
+    
+    // Parse HH:MM:SS or HH:MM format
+    const parts = timeString.split(':');
+    
+    if (parts.length === 1) {
+      // Just hours (e.g., "8")
+      return Math.round(parseFloat(parts[0]) * 100) / 100;
+    } else if (parts.length === 2) {
+      // HH:MM format (e.g., "7:30")
+      const hours = parseInt(parts[0]) || 0;
+      const minutes = parseInt(parts[1]) || 0;
+      const result = hours + (minutes / 60);
+      return Math.round(result * 100) / 100;
+    } else if (parts.length === 3) {
+      // HH:MM:SS format (e.g., "7:30:45")
+      const hours = parseInt(parts[0]) || 0;
+      const minutes = parseInt(parts[1]) || 0;
+      const seconds = parseInt(parts[2]) || 0;
+      const result = hours + (minutes / 60) + (seconds / 3600);
+      return Math.round(result * 100) / 100;
+    }
+    
+    return '';
+  };
+
+  // Format decimal hours to readable string for display
+  const formatHoursDisplay = (hours) => {
+    if (!hours) return '';
+    const h = Math.floor(hours);
+    const m = Math.floor((hours - h) * 60);
+    const s = Math.round(((hours - h) * 60 - m) * 60);
+    
+    if (s === 0 && m === 0) return `${h}h`;
+    if (s === 0) return `${h}h ${m}m`;
+    return `${h}h ${m}m ${s}s`;
+  };
+
   // Quick Entry Functions
   const handleQuickAddClick = () => {
     setQuickForm({
@@ -498,11 +847,15 @@ function App() {
 
   const handleQuickSubmit = async (e) => {
     e.preventDefault();
+    
+    // Convert hours to decimal format
+    const decimalHours = convertTimeToHours(quickForm.hours);
+    
     try {
       await axios.post(`${API_URL}/reports`, {
         employee_id: quickForm.employee_id,
         date: quickForm.date,
-        hours: quickForm.hours,
+        hours: decimalHours,
         project: quickForm.project,
         description: ''
       });
@@ -513,6 +866,7 @@ function App() {
         project: ''
       });
       setLastReport(null);
+      setIsQuickFormDirty(false);
       setShowQuickAddModal(false);
       fetchReports();
       fetchStats();
@@ -695,6 +1049,117 @@ function App() {
     }
   };
 
+  // Image Cropping Functions
+  const createImage = (url) =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.addEventListener('load', () => resolve(image));
+      image.addEventListener('error', (error) => reject(error));
+      image.setAttribute('crossOrigin', 'anonymous');
+      image.src = url;
+    });
+
+  const getCroppedImg = async (imageSrc, cropRect, naturalSize) => {
+    const image = await createImage(imageSrc);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Calculate scale between displayed image and natural size
+    const displayedImg = cropImageRef.current;
+    const scaleX = naturalSize.width / displayedImg.width;
+    const scaleY = naturalSize.height / displayedImg.height;
+
+    // Scale crop coordinates to natural image size
+    const scaledCrop = {
+      x: cropRect.x * scaleX,
+      y: cropRect.y * scaleY,
+      width: cropRect.width * scaleX,
+      height: cropRect.height * scaleY
+    };
+
+    canvas.width = scaledCrop.width;
+    canvas.height = scaledCrop.height;
+
+    ctx.drawImage(
+      image,
+      scaledCrop.x,
+      scaledCrop.y,
+      scaledCrop.width,
+      scaledCrop.height,
+      0,
+      0,
+      scaledCrop.width,
+      scaledCrop.height
+    );
+
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        resolve(blob);
+      }, 'image/jpeg', 0.95);
+    });
+  };
+
+  const handleCropSave = async () => {
+    try {
+      const croppedBlob = await getCroppedImg(cropImageSrc, cropRect, imageNaturalSize);
+      const croppedFile = new File([croppedBlob], tempFiles[currentCroppingIndex].name, {
+        type: 'image/jpeg'
+      });
+
+      // Replace the file at current index with cropped version
+      const updatedFiles = [...tempFiles];
+      updatedFiles[currentCroppingIndex] = croppedFile;
+      setTempFiles(updatedFiles);
+
+      // Move to next image or finish
+      if (currentCroppingIndex < tempFiles.length - 1) {
+        // Crop next image
+        const nextFile = updatedFiles[currentCroppingIndex + 1];
+        setCropImageSrc(URL.createObjectURL(nextFile));
+        setCurrentCroppingIndex(currentCroppingIndex + 1);
+        // Reset crop rectangle to center
+        setCropRect({ x: 50, y: 50, width: 200, height: 200 });
+      } else {
+        // All done, create previews
+        finalizeCroppedImages(updatedFiles);
+      }
+    } catch (error) {
+      console.error('Error cropping image:', error);
+    }
+  };
+
+  const handleSkipCrop = () => {
+    // Skip current image, move to next
+    if (currentCroppingIndex < tempFiles.length - 1) {
+      const nextFile = tempFiles[currentCroppingIndex + 1];
+      setCropImageSrc(URL.createObjectURL(nextFile));
+      setCurrentCroppingIndex(currentCroppingIndex + 1);
+      setCropRect({ x: 50, y: 50, width: 200, height: 200 });
+    } else {
+      // All done
+      finalizeCroppedImages(tempFiles);
+    }
+  };
+
+  const finalizeCroppedImages = (files) => {
+    setShowCropModal(false);
+    setCropImageSrc(null);
+    setCurrentCroppingIndex(0);
+    setTempFiles([]);
+    setCropRect({ x: 50, y: 50, width: 200, height: 200 });
+
+    // Create previews
+    const previews = files.map((file, index) => ({
+      file,
+      url: URL.createObjectURL(file),
+      caption: '',
+      index
+    }));
+    
+    setReportForm({ ...reportForm, screenshots: files });
+    setScreenshotPreviews(previews);
+  };
+
   return (
     <div className="app">
       <style>{`
@@ -737,6 +1202,27 @@ function App() {
         @keyframes slideDown {
           from { transform: translateY(-100%); }
           to { transform: translateY(0); }
+        }
+        
+        @keyframes blink {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+          20%, 40%, 60%, 80% { transform: translateX(10px); }
+        }
+        
+        .modal-blink {
+          animation: blink 0.4s ease-in-out;
+        }
+        
+        @keyframes slideInRight {
+          from {
+            opacity: 0;
+            transform: translateX(100%);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
         }
         
         .header-content {
@@ -1114,7 +1600,7 @@ function App() {
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 24px;
           padding: 2rem;
-          max-width: 600px;
+          max-width: 900px;
           width: 90%;
           max-height: 90vh;
           overflow-y: auto;
@@ -1380,7 +1866,7 @@ function App() {
                 <div className="stat-header">
                   <div>
                     <div className="stat-label">Total Hours</div>
-                    <div className="stat-value">{stats.totalHours || 0}</div>
+                    <div className="stat-value">{stats.totalHours ? parseFloat(stats.totalHours).toFixed(2) : 0}</div>
                   </div>
                   <div className="stat-icon">
                     <Clock size={24} color="white" />
@@ -1440,7 +1926,7 @@ function App() {
                       fontFamily: 'JetBrains Mono, monospace',
                       marginTop: '0.5rem'
                     }}>
-                      {insights.thisWeekHours.toFixed(1)}h
+                      {insights.thisWeekHours.toFixed(2)}h
                       <span style={{ 
                         fontSize: '0.9rem',
                         color: insights.hoursChange >= 0 ? '#10b981' : '#ef4444',
@@ -1590,7 +2076,7 @@ function App() {
                       </div>
                       <div className="detail-item">
                         <div className="detail-label">Hours</div>
-                        <div className="detail-value">{report.hours}h</div>
+                        <div className="detail-value">{parseFloat(report.hours).toFixed(2)}h</div>
                       </div>
                       <div className="detail-item">
                         <div className="detail-label">Screenshots</div>
@@ -1598,7 +2084,13 @@ function App() {
                       </div>
                     </div>
                     {report.description && (
-                      <p style={{ marginTop: '1rem', color: '#a5b4fc', fontSize: '0.95rem' }}>
+                      <p style={{ 
+                        marginTop: '1rem', 
+                        color: '#a5b4fc', 
+                        fontSize: '0.95rem',
+                        whiteSpace: 'pre-wrap',
+                        wordWrap: 'break-word'
+                      }}>
                         {report.description}
                       </p>
                     )}
@@ -1843,7 +2335,7 @@ function App() {
                         </div>
                         <div className="detail-item">
                           <div className="detail-label">Hours</div>
-                          <div className="detail-value">{report.hours}h</div>
+                          <div className="detail-value">{parseFloat(report.hours).toFixed(2)}h</div>
                         </div>
                         <div className="detail-item">
                           <div className="detail-label">Screenshots</div>
@@ -1851,7 +2343,13 @@ function App() {
                         </div>
                       </div>
                       {report.description && (
-                        <p style={{ marginTop: '1rem', color: '#a5b4fc', fontSize: '0.95rem' }}>
+                        <p style={{ 
+                          marginTop: '1rem', 
+                          color: '#a5b4fc', 
+                          fontSize: '0.95rem',
+                          whiteSpace: 'pre-wrap',
+                          wordWrap: 'break-word'
+                        }}>
                           {report.description}
                         </p>
                       )}
@@ -2100,7 +2598,7 @@ function App() {
                             fontFamily: 'JetBrains Mono, monospace',
                             fontSize: '1.1rem'
                           }}>
-                            {report.hours}h
+                            {parseFloat(report.hours).toFixed(2)}h
                           </td>
                           <td style={{ 
                             padding: '1rem',
@@ -2359,7 +2857,7 @@ function App() {
                             WebkitTextFillColor: 'transparent',
                             backgroundClip: 'text'
                           }}>
-                            {empData.total_hours.toFixed(1)}h
+                            {empData.total_hours.toFixed(2)}h
                           </div>
                         </div>
                         
@@ -2408,7 +2906,7 @@ function App() {
                                   fontWeight: 600,
                                   fontFamily: 'JetBrains Mono, monospace'
                                 }}>
-                                  {report.hours}h
+                                  {parseFloat(report.hours).toFixed(2)}h
                                 </span>
                               </div>
                             ))}
@@ -2456,7 +2954,7 @@ function App() {
                             WebkitTextFillColor: 'transparent',
                             backgroundClip: 'text'
                           }}>
-                            {projData.total_hours.toFixed(1)}h
+                            {projData.total_hours.toFixed(2)}h
                           </div>
                         </div>
                         
@@ -2507,7 +3005,7 @@ function App() {
                                   fontWeight: 600,
                                   fontFamily: 'JetBrains Mono, monospace'
                                 }}>
-                                  {report.hours}h
+                                  {parseFloat(report.hours).toFixed(2)}h
                                 </span>
                               </div>
                             ))}
@@ -2568,11 +3066,11 @@ function App() {
 
       {/* Add Employee Modal */}
       {showEmployeeModal && (
-        <div className="modal-overlay" onClick={() => setShowEmployeeModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('employee')}>
+          <div className={`modal ${blinkingModal === 'employee' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Add New Employee</h3>
-              <button className="close-btn" onClick={() => setShowEmployeeModal(false)}>
+              <button className="close-btn" onClick={handleCloseEmployeeModal}>
                 <X size={20} />
               </button>
             </div>
@@ -2624,11 +3122,11 @@ function App() {
 
       {/* Add Report Modal */}
       {showReportModal && (
-        <div className="modal-overlay" onClick={() => setShowReportModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('report')}>
+          <div className={`modal ${blinkingModal === 'report' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Submit EOD Report</h3>
-              <button className="close-btn" onClick={() => setShowReportModal(false)}>
+              <button className="close-btn" onClick={handleCloseReportModal}>
                 <X size={20} />
               </button>
             </div>
@@ -2680,16 +3178,16 @@ function App() {
               <div className="form-group">
                 <label className="form-label">Hours Worked *</label>
                 <input 
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="24"
+                  type="text"
                   className="form-input"
                   value={reportForm.hours}
                   onChange={(e) => setReportForm({...reportForm, hours: e.target.value})}
                   required
-                  placeholder="8"
+                  placeholder="8 or 7:30 or 7:30:45"
                 />
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                  Enter as decimal (8.5) or time format (7:30:00)
+                </div>
               </div>
               
               <div className="form-group">
@@ -2711,6 +3209,7 @@ function App() {
                     accept="image/*"
                     multiple
                     onChange={handleFileChange}
+                    ref={fileInputRef}
                   />
                   <Upload size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
                   <div style={{ color: '#a5b4fc', marginBottom: '0.25rem' }}>
@@ -2796,11 +3295,11 @@ function App() {
 
       {/* Edit Report Modal */}
       {showEditReportModal && editingReport && (
-        <div className="modal-overlay" onClick={() => { setShowEditReportModal(false); setEditingReport(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('edit')}>
+          <div className={`modal ${blinkingModal === 'edit' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Edit EOD Report</h3>
-              <button className="close-btn" onClick={() => { setShowEditReportModal(false); setEditingReport(null); }}>
+              <button className="close-btn" onClick={handleCloseEditModal}>
                 <X size={20} />
               </button>
             </div>
@@ -2865,16 +3364,16 @@ function App() {
               <div className="form-group">
                 <label className="form-label">Hours Worked *</label>
                 <input 
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="24"
+                  type="text"
                   className="form-input"
                   value={reportForm.hours}
                   onChange={(e) => setReportForm({...reportForm, hours: e.target.value})}
                   required
-                  placeholder="8"
+                  placeholder="8 or 7:30 or 7:30:45"
                 />
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                  Enter as decimal (8.5) or time format (7:30:00)
+                </div>
               </div>
               
               <div className="form-group">
@@ -2940,6 +3439,7 @@ function App() {
                     accept="image/*"
                     multiple
                     onChange={handleFileChange}
+                    ref={editFileInputRef}
                   />
                   <Upload size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
                   <div style={{ color: '#a5b4fc', marginBottom: '0.25rem' }}>
@@ -3025,8 +3525,8 @@ function App() {
 
       {/* View Report Modal */}
       {selectedReport && (
-        <div className="modal-overlay" onClick={() => setSelectedReport(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('view')}>
+          <div className={`modal ${blinkingModal === 'view' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Report Details</h3>
               <button className="close-btn" onClick={() => setSelectedReport(null)}>
@@ -3049,7 +3549,7 @@ function App() {
                 </div>
                 <div className="detail-item">
                   <div className="detail-label">Hours</div>
-                  <div className="detail-value">{selectedReport.hours}h</div>
+                  <div className="detail-value">{parseFloat(selectedReport.hours).toFixed(2)}h</div>
                 </div>
                 {selectedReport.project && (
                   <div className="detail-item">
@@ -3062,7 +3562,13 @@ function App() {
               {selectedReport.description && (
                 <div>
                   <div className="detail-label">Description</div>
-                  <p style={{ color: '#c7d2fe', marginTop: '0.5rem', lineHeight: '1.6' }}>
+                  <p style={{ 
+                    color: '#c7d2fe', 
+                    marginTop: '0.5rem', 
+                    lineHeight: '1.6',
+                    whiteSpace: 'pre-wrap',
+                    wordWrap: 'break-word'
+                  }}>
                     {selectedReport.description}
                   </p>
                 </div>
@@ -3111,11 +3617,11 @@ function App() {
 
       {/* Quick Add Modal */}
       {showQuickAddModal && (
-        <div className="modal-overlay" onClick={() => setShowQuickAddModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+        <div className="modal-overlay" onClick={() => handleModalClickOutside('quick')}>
+          <div className={`modal ${blinkingModal === 'quick' ? 'modal-blink' : ''}`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h3 className="modal-title">⚡ Quick EOD Entry</h3>
-              <button className="close-btn" onClick={() => setShowQuickAddModal(false)}>
+              <button className="close-btn" onClick={handleCloseQuickModal}>
                 <X size={20} />
               </button>
             </div>
@@ -3149,7 +3655,7 @@ function App() {
                     color: '#a5b4fc',
                     marginBottom: '0.5rem'
                   }}>
-                    Last Report: 📱 {lastReport.project} • {lastReport.hours}h
+                    Last Report: 📱 {lastReport.project} • {parseFloat(lastReport.hours).toFixed(2)}h
                   </div>
                   <button 
                     type="button"
@@ -3199,16 +3705,16 @@ function App() {
               <div className="form-group">
                 <label className="form-label">Hours Worked *</label>
                 <input 
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="24"
+                  type="text"
                   className="form-input"
                   value={quickForm.hours}
                   onChange={(e) => setQuickForm({...quickForm, hours: e.target.value})}
                   required
-                  placeholder="8"
+                  placeholder="8 or 7:30 or 7:30:45"
                 />
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                  Enter as decimal (8.5) or time format (7:30:00)
+                </div>
               </div>
               
               <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
@@ -3229,6 +3735,193 @@ function App() {
                 💡 Description & screenshots are optional. Click "New Report" for full form.
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Crop Modal */}
+      {showCropModal && cropImageSrc && (
+        <div className="modal-overlay" style={{ zIndex: 2000 }}>
+          <div 
+            className="modal" 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              width: '900px',
+              padding: '2rem'
+            }}
+          >
+            <div className="modal-header">
+              <h3 className="modal-title">
+                ✂️ Crop Screenshot ({currentCroppingIndex + 1} of {tempFiles.length})
+              </h3>
+              <button 
+                className="close-btn" 
+                onClick={() => {
+                  setShowCropModal(false);
+                  setTempFiles([]);
+                  setCropImageSrc(null);
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{
+              marginBottom: '1.5rem',
+              padding: '1rem',
+              background: 'rgba(103, 232, 249, 0.1)',
+              border: '1px solid rgba(103, 232, 249, 0.2)',
+              borderRadius: '12px',
+              fontSize: '0.9rem',
+              color: '#67e8f9'
+            }}>
+              💡 Drag the selection box to move it. Drag corners/edges to resize. Select the area you want to keep.
+            </div>
+
+            {/* Crop Area */}
+            <div style={{
+              position: 'relative',
+              width: '100%',
+              maxHeight: '500px',
+              background: '#000',
+              borderRadius: '12px',
+              overflow: 'auto',
+              marginBottom: '1.5rem',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <img
+                  ref={cropImageRef}
+                  src={cropImageSrc}
+                  alt="Crop"
+                  onLoad={(e) => {
+                    setImageNaturalSize({
+                      width: e.target.naturalWidth,
+                      height: e.target.naturalHeight
+                    });
+                  }}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '500px',
+                    display: 'block',
+                    userSelect: 'none'
+                  }}
+                  draggable={false}
+                />
+                
+                {/* Crop selection box */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${cropRect.x}px`,
+                    top: `${cropRect.y}px`,
+                    width: `${cropRect.width}px`,
+                    height: `${cropRect.height}px`,
+                    border: '2px solid #667eea',
+                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
+                    cursor: 'move',
+                    userSelect: 'none'
+                  }}
+                  onMouseDown={(e) => {
+                    if (e.target === e.currentTarget) {
+                      setIsDragging(true);
+                      setDragStart({
+                        x: e.clientX - cropRect.x,
+                        y: e.clientY - cropRect.y
+                      });
+                    }
+                  }}
+                >
+                  {/* Corner handles */}
+                  {['nw', 'ne', 'sw', 'se'].map(corner => (
+                    <div
+                      key={corner}
+                      style={{
+                        position: 'absolute',
+                        width: '12px',
+                        height: '12px',
+                        background: '#667eea',
+                        border: '2px solid #fff',
+                        borderRadius: '50%',
+                        ...(corner === 'nw' && { top: '-6px', left: '-6px', cursor: 'nw-resize' }),
+                        ...(corner === 'ne' && { top: '-6px', right: '-6px', cursor: 'ne-resize' }),
+                        ...(corner === 'sw' && { bottom: '-6px', left: '-6px', cursor: 'sw-resize' }),
+                        ...(corner === 'se' && { bottom: '-6px', right: '-6px', cursor: 'se-resize' })
+                      }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setIsResizing(true);
+                        setResizeHandle(corner);
+                        setDragStart({ x: e.clientX, y: e.clientY });
+                      }}
+                    />
+                  ))}
+                  
+                  {/* Edge handles */}
+                  {['n', 'e', 's', 'w'].map(edge => (
+                    <div
+                      key={edge}
+                      style={{
+                        position: 'absolute',
+                        background: 'transparent',
+                        ...(edge === 'n' && { top: '-4px', left: 0, right: 0, height: '8px', cursor: 'n-resize' }),
+                        ...(edge === 's' && { bottom: '-4px', left: 0, right: 0, height: '8px', cursor: 's-resize' }),
+                        ...(edge === 'w' && { left: '-4px', top: 0, bottom: 0, width: '8px', cursor: 'w-resize' }),
+                        ...(edge === 'e' && { right: '-4px', top: 0, bottom: 0, width: '8px', cursor: 'e-resize' })
+                      }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setIsResizing(true);
+                        setResizeHandle(edge);
+                        setDragStart({ x: e.clientX, y: e.clientY });
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '1rem',
+              justifyContent: 'space-between'
+            }}>
+              <button 
+                className="btn btn-secondary"
+                onClick={handleSkipCrop}
+                style={{ flex: 1 }}
+              >
+                <ChevronRight size={18} />
+                Skip This Image
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={handleCropSave}
+                style={{ flex: 1 }}
+              >
+                <Crop size={18} />
+                {currentCroppingIndex < tempFiles.length - 1 ? 'Crop & Next' : 'Crop & Finish'}
+              </button>
+            </div>
+
+            {/* Progress */}
+            <div style={{
+              marginTop: '1rem',
+              padding: '0.75rem',
+              background: 'rgba(15, 20, 40, 0.5)',
+              borderRadius: '8px',
+              textAlign: 'center',
+              fontSize: '0.85rem',
+              color: '#a5b4fc'
+            }}>
+              Image {currentCroppingIndex + 1} of {tempFiles.length} • 
+              Press "Skip" to use original image
+            </div>
           </div>
         </div>
       )}
@@ -3415,6 +4108,53 @@ function App() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Undo Toast */}
+      {deletedItem && (
+        <div style={{
+          position: 'fixed',
+          bottom: '2rem',
+          right: '2rem',
+          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          color: 'white',
+          padding: '1.25rem 1.5rem',
+          borderRadius: '16px',
+          boxShadow: '0 10px 40px rgba(16, 185, 129, 0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+          zIndex: 10000,
+          animation: 'slideInRight 0.3s ease-out',
+          minWidth: '300px'
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
+              ✓ {deletedItem.type === 'employee' ? 'Employee' : 'Report'} deleted
+            </div>
+            <div style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+              Click undo to restore
+            </div>
+          </div>
+          <button
+            onClick={handleUndo}
+            style={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              color: 'white',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+            onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+          >
+            Undo
+          </button>
         </div>
       )}
     </div>
