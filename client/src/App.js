@@ -6,7 +6,25 @@ import {
   Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop
 } from 'lucide-react';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// In production on Render, use relative path (same domain)
+// In development, use localhost
+const API_URL = process.env.NODE_ENV === 'production'
+  ? '/api'  // Relative path for production (same server)
+  : (process.env.REACT_APP_API_URL || 'http://localhost:5000/api');
+
+// Utility function to format dates nicely
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A';
+
+  const date = new Date(dateString);
+
+  // Check if date is valid
+  if (isNaN(date.getTime())) return dateString;
+
+  // Format as "Dec 13, 2025" or your preferred format
+  const options = { year: 'numeric', month: 'short', day: 'numeric' };
+  return date.toLocaleDateString('en-US', options);
+};
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -2072,7 +2090,7 @@ function App() {
                     <div className="report-details">
                       <div className="detail-item">
                         <div className="detail-label">Date</div>
-                        <div className="detail-value">{report.date}</div>
+                        <div className="detail-value">{formatDate(report.date)}</div>
                       </div>
                       <div className="detail-item">
                         <div className="detail-label">Hours</div>
@@ -2331,7 +2349,7 @@ function App() {
                       <div className="report-details">
                         <div className="detail-item">
                           <div className="detail-label">Date</div>
-                          <div className="detail-value">{report.date}</div>
+                          <div className="detail-value">{formatDate(report.date)}</div>
                         </div>
                         <div className="detail-item">
                           <div className="detail-label">Hours</div>
@@ -2566,13 +2584,13 @@ function App() {
                               }}
                             />
                           </td>
-                          <td style={{ 
+                          <td style={{
                             padding: '1rem',
                             color: '#e8eaf6',
                             fontFamily: 'JetBrains Mono, monospace',
                             fontSize: '0.9rem'
                           }}>
-                            {report.date}
+                            {formatDate(report.date)}
                           </td>
                           <td style={{ padding: '1rem' }}>
                             <div style={{ color: '#fff', fontWeight: 600 }}>{report.employee_name}</div>
@@ -2900,7 +2918,7 @@ function App() {
                                   fontSize: '0.9rem'
                                 }}
                               >
-                                <span style={{ color: '#a5b4fc' }}>{report.date}</span>
+                                <span style={{ color: '#a5b4fc' }}>{formatDate(report.date)}</span>
                                 <span style={{ 
                                   color: '#fff', 
                                   fontWeight: 600,
@@ -2998,7 +3016,7 @@ function App() {
                                 }}
                               >
                                 <span style={{ color: '#a5b4fc' }}>
-                                  {report.date} - {report.employee_name}
+                                  {formatDate(report.date)} - {report.employee_name}
                                 </span>
                                 <span style={{ 
                                   color: '#fff', 
