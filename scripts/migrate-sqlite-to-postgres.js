@@ -129,22 +129,40 @@ async function migrateEodReports() {
           continue;
         }
 
+        // Transform old schema to new schema
+        let hours = report.hours || 0;
+        let description = report.description || '';
+
+        // If old schema with start_time/end_time exists, calculate hours
+        if (report.start_time && report.end_time && !report.hours) {
+          const start = new Date(`1970-01-01T${report.start_time}`);
+          const end = new Date(`1970-01-01T${report.end_time}`);
+          const diffMs = end - start;
+          const diffHours = diffMs / (1000 * 60 * 60);
+          const breakHours = (report.break_duration || 0) / 60; // Convert minutes to hours
+          hours = Math.max(0, diffHours - breakHours);
+        }
+
+        // If old schema with tasks/challenges/plans exists, combine into description
+        if ((report.tasks_completed || report.challenges || report.plan_tomorrow) && !report.description) {
+          const parts = [];
+          if (report.tasks_completed) parts.push(`Tasks Completed:\n${report.tasks_completed}`);
+          if (report.challenges) parts.push(`Challenges:\n${report.challenges}`);
+          if (report.plan_tomorrow) parts.push(`Plan for Tomorrow:\n${report.plan_tomorrow}`);
+          description = parts.join('\n\n');
+        }
+
         await client.query(
           `INSERT INTO eod_reports
-           (id, employee_id, date, start_time, end_time, break_duration,
-            tasks_completed, challenges, plan_tomorrow, project, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+           (id, employee_id, date, hours, project, description, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             report.id,
             report.employee_id,
             report.date,
-            report.start_time,
-            report.end_time,
-            report.break_duration || 0,
-            report.tasks_completed,
-            report.challenges,
-            report.plan_tomorrow,
+            hours,
             report.project || null,
+            description,
             report.created_at
           ]
         );
@@ -195,10 +213,14 @@ async function migrateScreenshots() {
           continue;
         }
 
+        // Extract filename from filepath if not present
+        const filename = screenshot.filename || screenshot.filepath.split('/').pop() || screenshot.filepath;
+        const caption = screenshot.caption || null;
+
         await client.query(
-          `INSERT INTO screenshots (id, report_id, filepath, uploaded_at)
-           VALUES ($1, $2, $3, $4)`,
-          [screenshot.id, screenshot.report_id, screenshot.filepath, screenshot.uploaded_at]
+          `INSERT INTO screenshots (id, report_id, filename, filepath, caption, uploaded_at)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [screenshot.id, screenshot.report_id, filename, screenshot.filepath, caption, screenshot.uploaded_at]
         );
         migrated++;
       }
