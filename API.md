@@ -24,6 +24,7 @@ GET /api/employees
     "name": "John Doe",
     "email": "john@example.com",
     "role": "Software Engineer",
+    "hourly_rate": 50.00,
     "created_at": "2024-01-15T10:30:00.000Z"
   }
 ]
@@ -56,7 +57,8 @@ Content-Type: application/json
 {
   "name": "Jane Smith",
   "email": "jane@example.com",
-  "role": "Product Manager"
+  "role": "Product Manager",
+  "hourly_rate": 55.00
 }
 ```
 
@@ -125,6 +127,7 @@ GET /api/reports?employee_id=1&start_date=2024-01-01&end_date=2024-01-31
 - `employee_id` (optional): Filter by employee ID
 - `start_date` (optional): Filter by start date (YYYY-MM-DD)
 - `end_date` (optional): Filter by end date (YYYY-MM-DD)
+- `project` (optional): Filter by project name
 
 **Response**:
 ```json
@@ -232,6 +235,146 @@ DELETE /api/reports/:id
 
 **Note**: Deleting a report also deletes associated screenshots from the database and file system.
 
+### Bulk Delete Reports
+```http
+POST /api/reports/bulk-delete
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "report_ids": [1, 2, 3, 4, 5]
+}
+```
+
+**Response**:
+```json
+{
+  "deleted": 5,
+  "report_ids": [1, 2, 3, 4, 5]
+}
+```
+
+---
+
+## Projects
+
+### Get All Projects
+```http
+GET /api/projects
+```
+
+**Response**:
+```json
+["Project Alpha", "Project Beta", "Internal Tools"]
+```
+
+Returns a list of distinct project names from all reports.
+
+---
+
+## Employee Reports
+
+### Get Last Report for Employee
+```http
+GET /api/employees/:id/last-report
+```
+
+**Response**:
+```json
+{
+  "id": 42,
+  "employee_id": 1,
+  "date": "2024-01-15",
+  "hours": 8.5,
+  "project": "Project Alpha",
+  "description": "Worked on authentication module",
+  "created_at": "2024-01-15T18:30:00.000Z"
+}
+```
+
+Returns the most recent report for the specified employee, useful for pre-filling forms.
+
+---
+
+## Analytics
+
+### Get Missing EODs
+```http
+GET /api/missing-eods?date=2024-01-15
+```
+
+**Query Parameters**:
+- `date` (optional): Target date (YYYY-MM-DD). Defaults to today.
+
+**Response**:
+```json
+{
+  "date": "2024-01-15",
+  "total_employees": 10,
+  "reported": 7,
+  "missing": 3,
+  "missing_employees": [
+    {
+      "id": 3,
+      "name": "Jane Smith",
+      "role": "Product Manager"
+    },
+    {
+      "id": 5,
+      "name": "Bob Johnson",
+      "role": "Designer"
+    },
+    {
+      "id": 8,
+      "name": "Alice Williams",
+      "role": "QA Engineer"
+    }
+  ]
+}
+```
+
+### Get Cost Calculations
+```http
+GET /api/costs?employee_id=1&project=ProjectAlpha&start_date=2024-01-01&end_date=2024-01-31
+```
+
+**Query Parameters**:
+- `employee_id` (optional): Filter by employee ID
+- `project` (optional): Filter by project name
+- `start_date` (optional): Filter by start date (YYYY-MM-DD)
+- `end_date` (optional): Filter by end date (YYYY-MM-DD)
+
+**Response**:
+```json
+{
+  "employees": [
+    {
+      "employee_id": 1,
+      "employee_name": "John Doe",
+      "hourly_rate": 50.00,
+      "total_hours": 168.5,
+      "report_count": 21,
+      "total_cost": 8425.00
+    },
+    {
+      "employee_id": 2,
+      "employee_name": "Jane Smith",
+      "hourly_rate": 55.00,
+      "total_hours": 160.0,
+      "report_count": 20,
+      "total_cost": 8800.00
+    }
+  ],
+  "summary": {
+    "total_cost": 17225.00,
+    "total_hours": 328.5,
+    "average_rate": 52.42
+  }
+}
+```
+
 ---
 
 ## Statistics
@@ -332,17 +475,32 @@ All endpoints return appropriate HTTP status codes:
 
 ## Rate Limiting
 
-Currently no rate limiting is implemented. For production:
-- Implement rate limiting (e.g., express-rate-limit)
-- Recommended: 100 requests per 15 minutes per IP
+Rate limiting is now implemented using `express-rate-limit`:
+- Default: 100 requests per 15 minutes per IP
+- Configurable via environment variables:
+  - `RATE_LIMIT_WINDOW_MS`: Time window in milliseconds (default: 900000 = 15 minutes)
+  - `RATE_LIMIT_MAX_REQUESTS`: Max requests per window (default: 100)
+- Returns 429 status code when limit exceeded
+- Response headers include rate limit info
+
+**Rate Limit Response**:
+```json
+{
+  "message": "Too many requests from this IP, please try again later."
+}
+```
 
 ---
 
 ## CORS
 
-CORS is enabled for all origins in development. For production:
-- Whitelist specific origins
-- Update CORS configuration in server/index.js
+CORS is configured to support both development and production:
+- **Development**: All origins allowed (ALLOWED_ORIGINS not set)
+- **Production**: Restricted to specific origins via `ALLOWED_ORIGINS` environment variable
+- Set `ALLOWED_ORIGINS` in `.env` as comma-separated list:
+  ```
+  ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+  ```
 
 ---
 

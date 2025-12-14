@@ -2,15 +2,36 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
+const rateLimit = require('express-rate-limit');
+require('dotenv').config();
+
+const { pool, initializeDatabase } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// CORS Configuration
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' && process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : '*',
+  credentials: true
+};
+
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes default
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
+app.use(limiter);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -34,14 +55,14 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
-    
+
     if (mimetype && extname) {
       return cb(null, true);
     } else {
@@ -50,216 +71,99 @@ const upload = multer({
   }
 });
 
-// Initialize SQLite Database
-const db = new sqlite3.Database('./eod_reports.db', (err) => {
-  if (err) {
-    console.error('Error opening database:', err);
-  } else {
-    console.log('Connected to SQLite database');
-    initializeDatabase();
-  }
+// Initialize Database
+initializeDatabase().catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });
-
-// Initialize database tables
-function initializeDatabase() {
-  // Employees table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS employees (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      role TEXT NOT NULL,
-      hourly_rate REAL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // EOD Reports table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS eod_reports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      employee_id INTEGER NOT NULL,
-      date DATE NOT NULL,
-      hours REAL NOT NULL,
-      project TEXT,
-      description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (employee_id) REFERENCES employees (id)
-    )
-  `, (err) => {
-    if (err) {
-      console.error('Error creating eod_reports table:', err);
-    } else {
-      // Run migrations to add missing columns
-      migrateDatabase();
-    }
-  });
-
-  // Screenshots table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS screenshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      report_id INTEGER NOT NULL,
-      filename TEXT NOT NULL,
-      filepath TEXT NOT NULL,
-      caption TEXT,
-      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (report_id) REFERENCES eod_reports (id) ON DELETE CASCADE
-    )
-  `);
-}
-
-// Migration function to add missing columns to existing tables
-function migrateDatabase() {
-  // Check and add 'project' column to eod_reports if it doesn't exist
-  db.all("PRAGMA table_info(eod_reports)", [], (err, columns) => {
-    if (err) {
-      console.error('Error checking table schema:', err);
-      return;
-    }
-    
-    const hasProject = columns.some(col => col.name === 'project');
-    
-    if (!hasProject) {
-      db.run("ALTER TABLE eod_reports ADD COLUMN project TEXT", (err) => {
-        if (err) {
-          console.error('Error adding project column:', err);
-        } else {
-          console.log('✅ Added project column to eod_reports table');
-        }
-      });
-    }
-  });
-
-  // Check and add 'caption' column to screenshots if it doesn't exist
-  db.all("PRAGMA table_info(screenshots)", [], (err, columns) => {
-    if (err) {
-      console.error('Error checking screenshots table schema:', err);
-      return;
-    }
-    
-    const hasCaption = columns.some(col => col.name === 'caption');
-    
-    if (!hasCaption) {
-      db.run("ALTER TABLE screenshots ADD COLUMN caption TEXT", (err) => {
-        if (err) {
-          console.error('Error adding caption column:', err);
-        } else {
-          console.log('✅ Added caption column to screenshots table');
-        }
-      });
-    }
-  });
-
-  // Check and add 'hourly_rate' column to employees if it doesn't exist
-  db.all("PRAGMA table_info(employees)", [], (err, columns) => {
-    if (err) {
-      console.error('Error checking employees table schema:', err);
-      return;
-    }
-    
-    const hasHourlyRate = columns.some(col => col.name === 'hourly_rate');
-    
-    if (!hasHourlyRate) {
-      db.run("ALTER TABLE employees ADD COLUMN hourly_rate REAL DEFAULT 0", (err) => {
-        if (err) {
-          console.error('Error adding hourly_rate column:', err);
-        } else {
-          console.log('✅ Added hourly_rate column to employees table');
-        }
-      });
-    }
-  });
-}
 
 // ============ EMPLOYEE ROUTES ============
 
 // Get all employees
-app.get('/api/employees', (req, res) => {
-  db.all('SELECT * FROM employees ORDER BY name', [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    res.json(rows);
-  });
+app.get('/api/employees', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM employees ORDER BY name');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get single employee
-app.get('/api/employees/:id', (req, res) => {
-  db.get('SELECT * FROM employees WHERE id = ?', [req.params.id], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (!row) {
+app.get('/api/employees/:id', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM employees WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Employee not found' });
     }
-    res.json(row);
-  });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Create new employee
-app.post('/api/employees', (req, res) => {
+app.post('/api/employees', async (req, res) => {
   const { name, email, role, hourly_rate } = req.body;
-  
+
   if (!name || !email || !role) {
     return res.status(400).json({ error: 'Name, email, and role are required' });
   }
 
-  db.run(
-    'INSERT INTO employees (name, email, role, hourly_rate) VALUES (?, ?, ?, ?)',
-    [name, email, role, hourly_rate || 0],
-    function(err) {
-      if (err) {
-        if (err.message.includes('UNIQUE constraint failed')) {
-          return res.status(400).json({ error: 'Email already exists' });
-        }
-        return res.status(500).json({ error: err.message });
-      }
-      res.status(201).json({ id: this.lastID, name, email, role, hourly_rate: hourly_rate || 0 });
+  try {
+    const result = await pool.query(
+      'INSERT INTO employees (name, email, role, hourly_rate) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, email, role, hourly_rate || 0]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') { // Unique constraint violation
+      return res.status(400).json({ error: 'Email already exists' });
     }
-  );
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Update employee
-app.put('/api/employees/:id', (req, res) => {
+app.put('/api/employees/:id', async (req, res) => {
   const { name, email, role, hourly_rate } = req.body;
-  
-  db.run(
-    'UPDATE employees SET name = ?, email = ?, role = ?, hourly_rate = ? WHERE id = ?',
-    [name, email, role, hourly_rate || 0, req.params.id],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Employee not found' });
-      }
-      res.json({ id: req.params.id, name, email, role, hourly_rate: hourly_rate || 0 });
+
+  try {
+    const result = await pool.query(
+      'UPDATE employees SET name = $1, email = $2, role = $3, hourly_rate = $4 WHERE id = $5 RETURNING *',
+      [name, email, role, hourly_rate || 0, req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
     }
-  );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Delete employee
-app.delete('/api/employees/:id', (req, res) => {
-  db.run('DELETE FROM employees WHERE id = ?', [req.params.id], function(err) {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (this.changes === 0) {
+app.delete('/api/employees/:id', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM employees WHERE id = $1', [req.params.id]);
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Employee not found' });
     }
     res.json({ message: 'Employee deleted successfully' });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============ EOD REPORT ROUTES ============
 
 // Get all reports with filters
-app.get('/api/reports', (req, res) => {
+app.get('/api/reports', async (req, res) => {
   const { employee_id, start_date, end_date, project } = req.query;
-  
+
   let query = `
-    SELECT 
+    SELECT
       r.*,
       e.name as employee_name,
       e.email as employee_email,
@@ -268,308 +172,273 @@ app.get('/api/reports', (req, res) => {
     JOIN employees e ON r.employee_id = e.id
     WHERE 1=1
   `;
-  
+
   const params = [];
-  
+  let paramCount = 1;
+
   if (employee_id) {
-    query += ' AND r.employee_id = ?';
+    query += ` AND r.employee_id = $${paramCount++}`;
     params.push(employee_id);
   }
-  
+
   if (start_date) {
-    query += ' AND r.date >= ?';
+    query += ` AND r.date >= $${paramCount++}`;
     params.push(start_date);
   }
-  
+
   if (end_date) {
-    query += ' AND r.date <= ?';
+    query += ` AND r.date <= $${paramCount++}`;
     params.push(end_date);
   }
-  
+
   if (project) {
-    query += ' AND r.project = ?';
+    query += ` AND r.project = $${paramCount++}`;
     params.push(project);
   }
-  
+
   query += ' ORDER BY r.date DESC, r.created_at DESC';
-  
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    
-    // Get screenshots for each report
-    const reportIds = rows.map(r => r.id);
-    if (reportIds.length === 0) {
+
+  try {
+    const reportsResult = await pool.query(query, params);
+
+    if (reportsResult.rows.length === 0) {
       return res.json([]);
     }
-    
-    const placeholders = reportIds.map(() => '?').join(',');
-    db.all(
+
+    const reportIds = reportsResult.rows.map(r => r.id);
+    const placeholders = reportIds.map((_, i) => `$${i + 1}`).join(',');
+    const screenshotsResult = await pool.query(
       `SELECT * FROM screenshots WHERE report_id IN (${placeholders})`,
-      reportIds,
-      (err, screenshots) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        
-        // Attach screenshots to reports
-        const reportsWithScreenshots = rows.map(report => ({
-          ...report,
-          screenshots: screenshots.filter(s => s.report_id === report.id)
-        }));
-        
-        res.json(reportsWithScreenshots);
-      }
+      reportIds
     );
-  });
+
+    const reportsWithScreenshots = reportsResult.rows.map(report => ({
+      ...report,
+      screenshots: screenshotsResult.rows.filter(s => s.report_id === report.id)
+    }));
+
+    res.json(reportsWithScreenshots);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get single report
-app.get('/api/reports/:id', (req, res) => {
-  db.get(
-    `SELECT 
-      r.*,
-      e.name as employee_name,
-      e.email as employee_email,
-      e.role as employee_role
-    FROM eod_reports r
-    JOIN employees e ON r.employee_id = e.id
-    WHERE r.id = ?`,
-    [req.params.id],
-    (err, report) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (!report) {
-        return res.status(404).json({ error: 'Report not found' });
-      }
-      
-      // Get screenshots
-      db.all(
-        'SELECT * FROM screenshots WHERE report_id = ?',
-        [req.params.id],
-        (err, screenshots) => {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-          res.json({ ...report, screenshots });
-        }
-      );
+app.get('/api/reports/:id', async (req, res) => {
+  try {
+    const reportResult = await pool.query(
+      `SELECT
+        r.*,
+        e.name as employee_name,
+        e.email as employee_email,
+        e.role as employee_role
+      FROM eod_reports r
+      JOIN employees e ON r.employee_id = e.id
+      WHERE r.id = $1`,
+      [req.params.id]
+    );
+
+    if (reportResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Report not found' });
     }
-  );
+
+    const screenshotsResult = await pool.query(
+      'SELECT * FROM screenshots WHERE report_id = $1',
+      [req.params.id]
+    );
+
+    res.json({
+      ...reportResult.rows[0],
+      screenshots: screenshotsResult.rows
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Create new EOD report with screenshots
-app.post('/api/reports', upload.array('screenshots', 10), (req, res) => {
+app.post('/api/reports', upload.array('screenshots', 10), async (req, res) => {
   const { employee_id, date, hours, project, description, captions } = req.body;
-  
+
   if (!employee_id || !date || !hours) {
     return res.status(400).json({ error: 'Employee ID, date, and hours are required' });
   }
 
-  db.run(
-    'INSERT INTO eod_reports (employee_id, date, hours, project, description) VALUES (?, ?, ?, ?, ?)',
-    [employee_id, date, hours, project || '', description || ''],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      
-      const reportId = this.lastID;
-      
-      // Insert screenshots if any
-      if (req.files && req.files.length > 0) {
-        // Parse captions (sent as JSON string)
-        let captionsArray = [];
-        try {
-          captionsArray = captions ? JSON.parse(captions) : [];
-        } catch (e) {
-          captionsArray = [];
-        }
+  const client = await pool.connect();
 
-        const screenshotInserts = req.files.map((file, index) => {
-          return new Promise((resolve, reject) => {
-            const caption = captionsArray[index] || '';
-            db.run(
-              'INSERT INTO screenshots (report_id, filename, filepath, caption) VALUES (?, ?, ?, ?)',
-              [reportId, file.originalname, file.filename, caption],
-              (err) => {
-                if (err) reject(err);
-                else resolve();
-              }
-            );
-          });
-        });
-        
-        Promise.all(screenshotInserts)
-          .then(() => {
-            res.status(201).json({ 
-              id: reportId, 
-              employee_id, 
-              date, 
-              hours,
-              project,
-              description,
-              screenshots: req.files.length 
-            });
-          })
-          .catch(err => {
-            res.status(500).json({ error: 'Error saving screenshots: ' + err.message });
-          });
-      } else {
-        res.status(201).json({ 
-          id: reportId, 
-          employee_id, 
-          date, 
-          hours,
-          project,
-          description,
-          screenshots: 0 
-        });
+  try {
+    await client.query('BEGIN');
+
+    const reportResult = await client.query(
+      'INSERT INTO eod_reports (employee_id, date, hours, project, description) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [employee_id, date, hours, project || '', description || '']
+    );
+
+    const reportId = reportResult.rows[0].id;
+
+    // Insert screenshots if any
+    if (req.files && req.files.length > 0) {
+      let captionsArray = [];
+      try {
+        captionsArray = captions ? JSON.parse(captions) : [];
+      } catch (e) {
+        captionsArray = [];
+      }
+
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+        const caption = captionsArray[i] || '';
+        await client.query(
+          'INSERT INTO screenshots (report_id, filename, filepath, caption) VALUES ($1, $2, $3, $4)',
+          [reportId, file.originalname, file.filename, caption]
+        );
       }
     }
-  );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      ...reportResult.rows[0],
+      screenshots: req.files ? req.files.length : 0
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // Update report
-app.put('/api/reports/:id', upload.array('screenshots', 10), (req, res) => {
+app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) => {
   const { employee_id, date, hours, project, description, captions } = req.body;
-  
-  db.run(
-    'UPDATE eod_reports SET employee_id = ?, date = ?, hours = ?, project = ?, description = ? WHERE id = ?',
-    [employee_id, date, hours, project || '', description, req.params.id],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Report not found' });
-      }
-      
-      // Insert new screenshots if any
-      if (req.files && req.files.length > 0) {
-        // Parse captions (sent as JSON string)
-        let captionsArray = [];
-        try {
-          captionsArray = captions ? JSON.parse(captions) : [];
-        } catch (e) {
-          captionsArray = [];
-        }
 
-        const screenshotInserts = req.files.map((file, index) => {
-          return new Promise((resolve, reject) => {
-            const caption = captionsArray[index] || '';
-            db.run(
-              'INSERT INTO screenshots (report_id, filename, filepath, caption) VALUES (?, ?, ?, ?)',
-              [req.params.id, file.originalname, file.filename, caption],
-              (err) => {
-                if (err) reject(err);
-                else resolve();
-              }
-            );
-          });
-        });
-        
-        Promise.all(screenshotInserts)
-          .then(() => {
-            res.json({ 
-              id: req.params.id, 
-              employee_id, 
-              date, 
-              hours, 
-              project, 
-              description,
-              screenshots_added: req.files.length 
-            });
-          })
-          .catch(err => {
-            res.status(500).json({ error: 'Error saving new screenshots: ' + err.message });
-          });
-      } else {
-        res.json({ id: req.params.id, employee_id, date, hours, project, description });
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      'UPDATE eod_reports SET employee_id = $1, date = $2, hours = $3, project = $4, description = $5 WHERE id = $6 RETURNING *',
+      [employee_id, date, hours, project || '', description, req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Insert new screenshots if any
+    if (req.files && req.files.length > 0) {
+      let captionsArray = [];
+      try {
+        captionsArray = captions ? JSON.parse(captions) : [];
+      } catch (e) {
+        captionsArray = [];
+      }
+
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+        const caption = captionsArray[i] || '';
+        await client.query(
+          'INSERT INTO screenshots (report_id, filename, filepath, caption) VALUES ($1, $2, $3, $4)',
+          [req.params.id, file.originalname, file.filename, caption]
+        );
       }
     }
-  );
+
+    await client.query('COMMIT');
+
+    res.json({
+      ...result.rows[0],
+      screenshots_added: req.files ? req.files.length : 0
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // Delete report
-app.delete('/api/reports/:id', (req, res) => {
-  // First get screenshots to delete files
-  db.all('SELECT filepath FROM screenshots WHERE report_id = ?', [req.params.id], (err, screenshots) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    
+app.delete('/api/reports/:id', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Get screenshots to delete files
+    const screenshotsResult = await client.query(
+      'SELECT filepath FROM screenshots WHERE report_id = $1',
+      [req.params.id]
+    );
+
     // Delete screenshot files
-    screenshots.forEach(screenshot => {
+    screenshotsResult.rows.forEach(screenshot => {
       const filePath = path.join(uploadsDir, screenshot.filepath);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     });
-    
+
     // Delete report (screenshots will be deleted via CASCADE)
-    db.run('DELETE FROM eod_reports WHERE id = ?', [req.params.id], function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Report not found' });
-      }
-      res.json({ message: 'Report deleted successfully' });
-    });
-  });
+    const result = await client.query('DELETE FROM eod_reports WHERE id = $1', [req.params.id]);
+
+    if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Report deleted successfully' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // ============ STATISTICS ROUTES ============
 
-app.get('/api/projects', (req, res) => {
-  db.all(
-    'SELECT DISTINCT project FROM eod_reports WHERE project IS NOT NULL AND project != "" ORDER BY project',
-    [],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      const projects = rows.map(row => row.project);
-      res.json(projects);
-    }
-  );
+app.get('/api/projects', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT DISTINCT project FROM eod_reports WHERE project IS NOT NULL AND project != \'\' ORDER BY project'
+    );
+    const projects = result.rows.map(row => row.project);
+    res.json(projects);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/stats', (req, res) => {
-  const queries = {
-    totalEmployees: 'SELECT COUNT(*) as count FROM employees',
-    totalReports: 'SELECT COUNT(*) as count FROM eod_reports',
-    totalHours: 'SELECT SUM(hours) as total FROM eod_reports',
-    reportsToday: `SELECT COUNT(*) as count FROM eod_reports WHERE date = date('now')`,
-  };
+app.get('/api/stats', async (req, res) => {
+  try {
+    const employeesResult = await pool.query('SELECT COUNT(*) as count FROM employees');
+    const reportsResult = await pool.query('SELECT COUNT(*) as count FROM eod_reports');
+    const hoursResult = await pool.query('SELECT SUM(hours) as total FROM eod_reports');
+    const todayResult = await pool.query('SELECT COUNT(*) as count FROM eod_reports WHERE date = CURRENT_DATE');
 
-  const stats = {};
-  let completed = 0;
-
-  Object.keys(queries).forEach(key => {
-    db.get(queries[key], [], (err, row) => {
-      if (!err) {
-        stats[key] = row.count || row.total || 0;
-      }
-      completed++;
-      
-      if (completed === Object.keys(queries).length) {
-        res.json(stats);
-      }
+    res.json({
+      totalEmployees: parseInt(employeesResult.rows[0].count),
+      totalReports: parseInt(reportsResult.rows[0].count),
+      totalHours: parseFloat(hoursResult.rows[0].total) || 0,
+      reportsToday: parseInt(todayResult.rows[0].count)
     });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============ EXPORT ROUTES ============
 
-app.get('/api/reports/export/csv', (req, res) => {
+app.get('/api/reports/export/csv', async (req, res) => {
   const { employee_id, start_date, end_date, project } = req.query;
-  
+
   let query = `
-    SELECT 
+    SELECT
       r.date,
       e.name as employee_name,
       e.email as employee_email,
@@ -581,46 +450,46 @@ app.get('/api/reports/export/csv', (req, res) => {
     JOIN employees e ON r.employee_id = e.id
     WHERE 1=1
   `;
-  
+
   const params = [];
-  
+  let paramCount = 1;
+
   if (employee_id) {
-    query += ' AND r.employee_id = ?';
+    query += ` AND r.employee_id = $${paramCount++}`;
     params.push(employee_id);
   }
-  
+
   if (start_date) {
-    query += ' AND r.date >= ?';
+    query += ` AND r.date >= $${paramCount++}`;
     params.push(start_date);
   }
-  
+
   if (end_date) {
-    query += ' AND r.date <= ?';
+    query += ` AND r.date <= $${paramCount++}`;
     params.push(end_date);
   }
-  
+
   if (project) {
-    query += ' AND r.project = ?';
+    query += ` AND r.project = $${paramCount++}`;
     params.push(project);
   }
-  
+
   query += ' ORDER BY r.date DESC';
-  
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    
-    // Create CSV
+
+  try {
+    const result = await pool.query(query, params);
+
     let csv = 'Date,Employee Name,Email,Role,Hours,Project/App,Description\n';
-    rows.forEach(row => {
+    result.rows.forEach(row => {
       csv += `"${row.date}","${row.employee_name}","${row.employee_email}","${row.employee_role}",${row.hours},"${row.project || ''}","${row.description || ''}"\n`;
     });
-    
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=eod_reports.csv');
     res.send(csv);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Health check
@@ -629,46 +498,38 @@ app.get('/api/health', (req, res) => {
 });
 
 // Get missing EODs
-app.get('/api/missing-eods', (req, res) => {
+app.get('/api/missing-eods', async (req, res) => {
   const { date } = req.query;
   const targetDate = date || new Date().toISOString().split('T')[0];
-  
-  // Get all employees
-  db.all('SELECT id, name, role FROM employees ORDER BY name', [], (err, employees) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    
-    // Get reports for target date
-    db.all(
-      'SELECT DISTINCT employee_id FROM eod_reports WHERE date = ?',
-      [targetDate],
-      (err, reports) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        
-        const reportedEmployeeIds = reports.map(r => r.employee_id);
-        const missingEmployees = employees.filter(e => !reportedEmployeeIds.includes(e.id));
-        
-        res.json({
-          date: targetDate,
-          total_employees: employees.length,
-          reported: reportedEmployeeIds.length,
-          missing: missingEmployees.length,
-          missing_employees: missingEmployees
-        });
-      }
+
+  try {
+    const employeesResult = await pool.query('SELECT id, name, role FROM employees ORDER BY name');
+    const reportsResult = await pool.query(
+      'SELECT DISTINCT employee_id FROM eod_reports WHERE date = $1',
+      [targetDate]
     );
-  });
+
+    const reportedEmployeeIds = reportsResult.rows.map(r => r.employee_id);
+    const missingEmployees = employeesResult.rows.filter(e => !reportedEmployeeIds.includes(e.id));
+
+    res.json({
+      date: targetDate,
+      total_employees: employeesResult.rows.length,
+      reported: reportedEmployeeIds.length,
+      missing: missingEmployees.length,
+      missing_employees: missingEmployees
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get cost calculation
-app.get('/api/costs', (req, res) => {
+app.get('/api/costs', async (req, res) => {
   const { employee_id, project, start_date, end_date } = req.query;
-  
+
   let query = `
-    SELECT 
+    SELECT
       r.employee_id,
       e.name as employee_name,
       e.hourly_rate,
@@ -679,93 +540,100 @@ app.get('/api/costs', (req, res) => {
     JOIN employees e ON r.employee_id = e.id
     WHERE 1=1
   `;
-  
+
   const params = [];
-  
+  let paramCount = 1;
+
   if (employee_id) {
-    query += ' AND r.employee_id = ?';
+    query += ` AND r.employee_id = $${paramCount++}`;
     params.push(employee_id);
   }
-  
+
   if (project) {
-    query += ' AND r.project = ?';
+    query += ` AND r.project = $${paramCount++}`;
     params.push(project);
   }
-  
+
   if (start_date) {
-    query += ' AND r.date >= ?';
+    query += ` AND r.date >= $${paramCount++}`;
     params.push(start_date);
   }
-  
+
   if (end_date) {
-    query += ' AND r.date <= ?';
+    query += ` AND r.date <= $${paramCount++}`;
     params.push(end_date);
   }
-  
+
   query += ' GROUP BY r.employee_id, e.name, e.hourly_rate ORDER BY total_cost DESC';
-  
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    
-    const grand_total = rows.reduce((sum, row) => sum + (row.total_cost || 0), 0);
-    const total_hours = rows.reduce((sum, row) => sum + (row.total_hours || 0), 0);
-    
+
+  try {
+    const result = await pool.query(query, params);
+
+    const grand_total = result.rows.reduce((sum, row) => sum + (parseFloat(row.total_cost) || 0), 0);
+    const total_hours = result.rows.reduce((sum, row) => sum + (parseFloat(row.total_hours) || 0), 0);
+
     res.json({
-      employees: rows,
+      employees: result.rows,
       summary: {
         total_cost: grand_total,
         total_hours: total_hours,
         average_rate: total_hours > 0 ? grand_total / total_hours : 0
       }
     });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Bulk delete reports
-app.post('/api/reports/bulk-delete', (req, res) => {
+app.post('/api/reports/bulk-delete', async (req, res) => {
   const { report_ids } = req.body;
-  
+
   if (!report_ids || !Array.isArray(report_ids) || report_ids.length === 0) {
     return res.status(400).json({ error: 'report_ids array is required' });
   }
-  
-  const placeholders = report_ids.map(() => '?').join(',');
-  
-  db.run(
-    `DELETE FROM eod_reports WHERE id IN (${placeholders})`,
-    report_ids,
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json({ deleted: this.changes, report_ids });
-    }
-  );
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const placeholders = report_ids.map((_, i) => `$${i + 1}`).join(',');
+    const result = await client.query(
+      `DELETE FROM eod_reports WHERE id IN (${placeholders})`,
+      report_ids
+    );
+
+    await client.query('COMMIT');
+    res.json({ deleted: result.rowCount, report_ids });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // Get last report for employee (for quick entry templates)
-app.get('/api/employees/:id/last-report', (req, res) => {
-  db.get(
-    `SELECT * FROM eod_reports 
-     WHERE employee_id = ? 
-     ORDER BY date DESC, created_at DESC 
-     LIMIT 1`,
-    [req.params.id],
-    (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(row || null);
-    }
-  );
+app.get('/api/employees/:id/last-report', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM eod_reports
+       WHERE employee_id = $1
+       ORDER BY date DESC, created_at DESC
+       LIMIT 1`,
+      [req.params.id]
+    );
+    res.json(result.rows[0] || null);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Serve React build in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
-  
+
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
   });
@@ -778,13 +646,14 @@ app.listen(PORT, () => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
-  db.close((err) => {
-    if (err) {
-      console.error('Error closing database:', err);
-    } else {
-      console.log('Database connection closed');
-    }
-    process.exit(0);
-  });
+process.on('SIGINT', async () => {
+  await pool.end();
+  console.log('Database connection closed');
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await pool.end();
+  console.log('Database connection closed');
+  process.exit(0);
 });

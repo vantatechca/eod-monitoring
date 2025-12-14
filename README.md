@@ -47,15 +47,17 @@ A comprehensive full-stack employee monitoring system for tracking End-of-Day (E
 ### Backend
 - **Node.js** - Runtime
 - **Express** - Web framework
-- **SQLite3** - Database
+- **PostgreSQL** - Database (migrated from SQLite)
 - **Multer** - File upload handling
 - **CORS** - Cross-origin resource sharing
+- **express-rate-limit** - API rate limiting
 
 ## Quick Start
 
 ### Prerequisites
 - Node.js (v14 or higher)
 - npm or yarn
+- PostgreSQL (v12 or higher) - for local development
 
 ### Installation
 
@@ -157,6 +159,7 @@ The app will run on `http://localhost:5000`
 ### Employees
 - `GET /api/employees` - Get all employees
 - `GET /api/employees/:id` - Get single employee
+- `GET /api/employees/:id/last-report` - Get last report for employee
 - `POST /api/employees` - Create employee
 - `PUT /api/employees/:id` - Update employee
 - `DELETE /api/employees/:id` - Delete employee
@@ -167,6 +170,14 @@ The app will run on `http://localhost:5000`
 - `POST /api/reports` - Create report (multipart/form-data)
 - `PUT /api/reports/:id` - Update report
 - `DELETE /api/reports/:id` - Delete report
+- `POST /api/reports/bulk-delete` - Bulk delete reports
+
+### Projects
+- `GET /api/projects` - Get all distinct project names
+
+### Analytics
+- `GET /api/missing-eods` - Get employees who haven't submitted EODs
+- `GET /api/costs` - Get cost calculations by employee/project
 
 ### Statistics
 - `GET /api/stats` - Get dashboard statistics
@@ -205,6 +216,7 @@ eod-monitor/
 - name (TEXT)
 - email (TEXT UNIQUE)
 - role (TEXT)
+- hourly_rate (REAL) - Default: 0
 - created_at (DATETIME)
 
 ### eod_reports
@@ -212,6 +224,7 @@ eod-monitor/
 - employee_id (INTEGER)
 - date (DATE)
 - hours (REAL)
+- project (TEXT) - Project/app name
 - description (TEXT)
 - created_at (DATETIME)
 
@@ -220,18 +233,37 @@ eod-monitor/
 - report_id (INTEGER)
 - filename (TEXT)
 - filepath (TEXT)
+- caption (TEXT) - Optional caption for screenshot
 - uploaded_at (DATETIME)
 
 ## Configuration
 
 ### Environment Variables
 
-Create a `.env` file in the root directory:
+Create a `.env` file in the root directory (or copy from `.env.example`):
+
+```bash
+cp .env.example .env
+```
+
+Available environment variables:
 
 ```env
+# Server Configuration
 PORT=5000
 NODE_ENV=development
+
+# Frontend API URL (used by React app in production)
 REACT_APP_API_URL=http://localhost:5000/api
+
+# CORS Configuration
+# Leave empty for development (allows all origins)
+# In production, set to your frontend URL(s) - comma-separated
+ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+
+# Rate Limiting
+RATE_LIMIT_WINDOW_MS=900000     # 15 minutes in milliseconds
+RATE_LIMIT_MAX_REQUESTS=100     # Max requests per window
 ```
 
 ### File Upload Limits
@@ -241,15 +273,42 @@ REACT_APP_API_URL=http://localhost:5000/api
 
 ## Security Considerations
 
-For production deployment:
-1. Add authentication/authorization
-2. Implement rate limiting
-3. Add input validation and sanitization
-4. Use HTTPS
-5. Set up proper CORS policies
-6. Use environment variables for sensitive data
-7. Implement proper error handling
-8. Add request logging
+### Implemented
+✅ **Rate limiting** - Protects against DoS attacks (configurable via env vars)
+✅ **CORS policies** - Configurable for production environments
+✅ **Environment variables** - Sensitive configuration externalized
+✅ **Input validation** - File upload restrictions and data validation
+
+### Still Needed for Production
+⚠️ **Authentication/Authorization** - No user authentication currently
+⚠️ **HTTPS** - Must be configured at deployment level
+⚠️ **Request logging** - Add logging middleware for audit trails
+⚠️ **Input sanitization** - Enhanced SQL injection prevention
+⚠️ **Security headers** - Add helmet.js for security headers
+⚠️ **Database encryption** - Encrypt sensitive data at rest
+
+## Deployment
+
+### Deploy to Render.com (Recommended)
+
+This app is configured for easy deployment to Render.com with PostgreSQL database.
+
+**Quick Deploy:**
+1. Push code to GitHub
+2. On Render dashboard, create a new "Blueprint"
+3. Connect your repository
+4. Render will automatically detect `render.yaml` and deploy
+
+**Detailed Instructions:**
+See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for complete deployment guide.
+
+### Deploy with Docker
+
+```bash
+docker-compose up
+```
+
+Access at `http://localhost:5000`
 
 ## Troubleshooting
 
@@ -260,11 +319,11 @@ If port 5000 or 3000 is already in use:
 PORT=5001
 ```
 
-### Database locked error
-If you see "database is locked":
-- Stop all running instances
-- Delete `eod_reports.db`
-- Restart the server (database will be recreated)
+### Database connection error
+If you see "database connection failed":
+- Verify PostgreSQL is running
+- Check `DATABASE_URL` in .env file is correct
+- Ensure database exists: `createdb eod_monitor`
 
 ### File upload not working
 - Check uploads directory permissions
