@@ -69,6 +69,7 @@ function initializeDatabase() {
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       role TEXT NOT NULL,
+      hourly_rate REAL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -149,6 +150,26 @@ function migrateDatabase() {
       });
     }
   });
+
+  // Check and add 'hourly_rate' column to employees if it doesn't exist
+  db.all("PRAGMA table_info(employees)", [], (err, columns) => {
+    if (err) {
+      console.error('Error checking employees table schema:', err);
+      return;
+    }
+    
+    const hasHourlyRate = columns.some(col => col.name === 'hourly_rate');
+    
+    if (!hasHourlyRate) {
+      db.run("ALTER TABLE employees ADD COLUMN hourly_rate REAL DEFAULT 0", (err) => {
+        if (err) {
+          console.error('Error adding hourly_rate column:', err);
+        } else {
+          console.log('✅ Added hourly_rate column to employees table');
+        }
+      });
+    }
+  });
 }
 
 // ============ EMPLOYEE ROUTES ============
@@ -178,15 +199,15 @@ app.get('/api/employees/:id', (req, res) => {
 
 // Create new employee
 app.post('/api/employees', (req, res) => {
-  const { name, email, role } = req.body;
+  const { name, email, role, hourly_rate } = req.body;
   
   if (!name || !email || !role) {
     return res.status(400).json({ error: 'Name, email, and role are required' });
   }
 
   db.run(
-    'INSERT INTO employees (name, email, role) VALUES (?, ?, ?)',
-    [name, email, role],
+    'INSERT INTO employees (name, email, role, hourly_rate) VALUES (?, ?, ?, ?)',
+    [name, email, role, hourly_rate || 0],
     function(err) {
       if (err) {
         if (err.message.includes('UNIQUE constraint failed')) {
@@ -194,18 +215,18 @@ app.post('/api/employees', (req, res) => {
         }
         return res.status(500).json({ error: err.message });
       }
-      res.status(201).json({ id: this.lastID, name, email, role });
+      res.status(201).json({ id: this.lastID, name, email, role, hourly_rate: hourly_rate || 0 });
     }
   );
 });
 
 // Update employee
 app.put('/api/employees/:id', (req, res) => {
-  const { name, email, role } = req.body;
+  const { name, email, role, hourly_rate } = req.body;
   
   db.run(
-    'UPDATE employees SET name = ?, email = ?, role = ? WHERE id = ?',
-    [name, email, role, req.params.id],
+    'UPDATE employees SET name = ?, email = ?, role = ?, hourly_rate = ? WHERE id = ?',
+    [name, email, role, hourly_rate || 0, req.params.id],
     function(err) {
       if (err) {
         return res.status(500).json({ error: err.message });
@@ -213,7 +234,7 @@ app.put('/api/employees/:id', (req, res) => {
       if (this.changes === 0) {
         return res.status(404).json({ error: 'Employee not found' });
       }
-      res.json({ id: req.params.id, name, email, role });
+      res.json({ id: req.params.id, name, email, role, hourly_rate: hourly_rate || 0 });
     }
   );
 });
@@ -605,6 +626,140 @@ app.get('/api/reports/export/csv', (req, res) => {
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Get missing EODs
+app.get('/api/missing-eods', (req, res) => {
+  const { date } = req.query;
+  const targetDate = date || new Date().toISOString().split('T')[0];
+  
+  // Get all employees
+  db.all('SELECT id, name, role FROM employees ORDER BY name', [], (err, employees) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    // Get reports for target date
+    db.all(
+      'SELECT DISTINCT employee_id FROM eod_reports WHERE date = ?',
+      [targetDate],
+      (err, reports) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        const reportedEmployeeIds = reports.map(r => r.employee_id);
+        const missingEmployees = employees.filter(e => !reportedEmployeeIds.includes(e.id));
+        
+        res.json({
+          date: targetDate,
+          total_employees: employees.length,
+          reported: reportedEmployeeIds.length,
+          missing: missingEmployees.length,
+          missing_employees: missingEmployees
+        });
+      }
+    );
+  });
+});
+
+// Get cost calculation
+app.get('/api/costs', (req, res) => {
+  const { employee_id, project, start_date, end_date } = req.query;
+  
+  let query = `
+    SELECT 
+      r.employee_id,
+      e.name as employee_name,
+      e.hourly_rate,
+      SUM(r.hours) as total_hours,
+      COUNT(r.id) as report_count,
+      (SUM(r.hours) * e.hourly_rate) as total_cost
+    FROM eod_reports r
+    JOIN employees e ON r.employee_id = e.id
+    WHERE 1=1
+  `;
+  
+  const params = [];
+  
+  if (employee_id) {
+    query += ' AND r.employee_id = ?';
+    params.push(employee_id);
+  }
+  
+  if (project) {
+    query += ' AND r.project = ?';
+    params.push(project);
+  }
+  
+  if (start_date) {
+    query += ' AND r.date >= ?';
+    params.push(start_date);
+  }
+  
+  if (end_date) {
+    query += ' AND r.date <= ?';
+    params.push(end_date);
+  }
+  
+  query += ' GROUP BY r.employee_id, e.name, e.hourly_rate ORDER BY total_cost DESC';
+  
+  db.all(query, params, (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    const grand_total = rows.reduce((sum, row) => sum + (row.total_cost || 0), 0);
+    const total_hours = rows.reduce((sum, row) => sum + (row.total_hours || 0), 0);
+    
+    res.json({
+      employees: rows,
+      summary: {
+        total_cost: grand_total,
+        total_hours: total_hours,
+        average_rate: total_hours > 0 ? grand_total / total_hours : 0
+      }
+    });
+  });
+});
+
+// Bulk delete reports
+app.post('/api/reports/bulk-delete', (req, res) => {
+  const { report_ids } = req.body;
+  
+  if (!report_ids || !Array.isArray(report_ids) || report_ids.length === 0) {
+    return res.status(400).json({ error: 'report_ids array is required' });
+  }
+  
+  const placeholders = report_ids.map(() => '?').join(',');
+  
+  db.run(
+    `DELETE FROM eod_reports WHERE id IN (${placeholders})`,
+    report_ids,
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ deleted: this.changes, report_ids });
+    }
+  );
+});
+
+// Get last report for employee (for quick entry templates)
+app.get('/api/employees/:id/last-report', (req, res) => {
+  db.get(
+    `SELECT * FROM eod_reports 
+     WHERE employee_id = ? 
+     ORDER BY date DESC, created_at DESC 
+     LIMIT 1`,
+    [req.params.id],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(row || null);
+    }
+  );
 });
 
 // Serve React build in production

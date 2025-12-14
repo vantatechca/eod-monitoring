@@ -20,11 +20,33 @@ function App() {
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showEditReportModal, setShowEditReportModal] = useState(false);
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
   const [editingReport, setEditingReport] = useState(null);
   const [showGallery, setShowGallery] = useState(false);
   const [galleryImages, setGalleryImages] = useState([]);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  
+  // Quick Entry
+  const [quickForm, setQuickForm] = useState({
+    employee_id: '',
+    date: new Date().toISOString().split('T')[0],
+    hours: '',
+    project: ''
+  });
+  const [lastReport, setLastReport] = useState(null);
+  
+  // Bulk Operations
+  const [selectedReports, setSelectedReports] = useState([]);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  
+  // List View
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' or 'list'
+  const [sortBy, setSortBy] = useState('date');
+  const [sortOrder, setSortOrder] = useState('desc');
+  
+  // Productivity Insights
+  const [insights, setInsights] = useState(null);
   
   // Filters
   const [filters, setFilters] = useState({
@@ -66,6 +88,16 @@ function App() {
   useEffect(() => {
     fetchReports();
   }, [filters]);
+
+  useEffect(() => {
+    if (employees.length > 0) {
+      fetchInsights();
+    }
+  }, [employees, reports]);
+
+  useEffect(() => {
+    setShowBulkActions(selectedReports.length > 0);
+  }, [selectedReports]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -428,6 +460,239 @@ function App() {
 
   const clearProjectSelection = () => {
     setAnalyticsFilters({...analyticsFilters, selected_projects: []});
+  };
+
+  // Quick Entry Functions
+  const handleQuickAddClick = () => {
+    setQuickForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      hours: '8',
+      project: ''
+    });
+    setLastReport(null);
+    setShowQuickAddModal(true);
+  };
+
+  const handleQuickEmployeeSelect = async (employeeId) => {
+    setQuickForm({...quickForm, employee_id: employeeId});
+    
+    // Fetch last report for this employee
+    try {
+      const response = await axios.get(`${API_URL}/employees/${employeeId}/last-report`);
+      if (response.data) {
+        setLastReport(response.data);
+        setQuickForm({
+          employee_id: employeeId,
+          date: new Date().toISOString().split('T')[0],
+          hours: response.data.hours.toString(),
+          project: response.data.project || ''
+        });
+      } else {
+        setLastReport(null);
+      }
+    } catch (error) {
+      console.error('Error fetching last report:', error);
+    }
+  };
+
+  const handleQuickSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`${API_URL}/reports`, {
+        employee_id: quickForm.employee_id,
+        date: quickForm.date,
+        hours: quickForm.hours,
+        project: quickForm.project,
+        description: ''
+      });
+      setQuickForm({
+        employee_id: '',
+        date: new Date().toISOString().split('T')[0],
+        hours: '',
+        project: ''
+      });
+      setLastReport(null);
+      setShowQuickAddModal(false);
+      fetchReports();
+      fetchStats();
+      fetchProjects();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error submitting quick report');
+    }
+  };
+
+  // Bulk Operations Functions
+  const toggleReportSelection = (reportId) => {
+    setSelectedReports(prev => 
+      prev.includes(reportId) 
+        ? prev.filter(id => id !== reportId)
+        : [...prev, reportId]
+    );
+  };
+
+  const selectAllReports = () => {
+    setSelectedReports(reports.map(r => r.id));
+  };
+
+  const clearSelection = () => {
+    setSelectedReports([]);
+  };
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selectedReports.length} selected reports?`)) return;
+    
+    try {
+      await axios.post(`${API_URL}/reports/bulk-delete`, {
+        report_ids: selectedReports
+      });
+      setSelectedReports([]);
+      fetchReports();
+      fetchStats();
+    } catch (error) {
+      alert('Error deleting reports');
+    }
+  };
+
+  // List View Sorting
+  const sortReports = (reportsToSort) => {
+    return [...reportsToSort].sort((a, b) => {
+      let aVal, bVal;
+      
+      switch(sortBy) {
+        case 'date':
+          aVal = new Date(a.date);
+          bVal = new Date(b.date);
+          break;
+        case 'employee':
+          aVal = a.employee_name.toLowerCase();
+          bVal = b.employee_name.toLowerCase();
+          break;
+        case 'project':
+          aVal = (a.project || '').toLowerCase();
+          bVal = (b.project || '').toLowerCase();
+          break;
+        case 'hours':
+          aVal = parseFloat(a.hours);
+          bVal = parseFloat(b.hours);
+          break;
+        default:
+          return 0;
+      }
+      
+      if (sortOrder === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+  };
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('desc');
+    }
+  };
+
+  // Productivity Insights
+  const fetchInsights = async () => {
+    try {
+      const today = new Date();
+      const thisWeekStart = new Date(today);
+      thisWeekStart.setDate(today.getDate() - today.getDay());
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+      const lastWeekEnd = new Date(thisWeekStart);
+      lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+
+      const thisWeekParams = new URLSearchParams({
+        start_date: thisWeekStart.toISOString().split('T')[0],
+        end_date: today.toISOString().split('T')[0]
+      });
+      
+      const lastWeekParams = new URLSearchParams({
+        start_date: lastWeekStart.toISOString().split('T')[0],
+        end_date: lastWeekEnd.toISOString().split('T')[0]
+      });
+
+      const [thisWeekRes, lastWeekRes] = await Promise.all([
+        axios.get(`${API_URL}/reports?${thisWeekParams}`),
+        axios.get(`${API_URL}/reports?${lastWeekParams}`)
+      ]);
+
+      const thisWeekReports = thisWeekRes.data;
+      const lastWeekReports = lastWeekRes.data;
+
+      // Calculate stats
+      const thisWeekHours = thisWeekReports.reduce((sum, r) => sum + parseFloat(r.hours || 0), 0);
+      const lastWeekHours = lastWeekReports.reduce((sum, r) => sum + parseFloat(r.hours || 0), 0);
+      const hoursChange = thisWeekHours - lastWeekHours;
+      const hoursChangePercent = lastWeekHours > 0 ? ((hoursChange / lastWeekHours) * 100).toFixed(1) : 0;
+
+      // Average hours per employee
+      const thisWeekAvg = employees.length > 0 ? thisWeekHours / employees.length : 0;
+      const lastWeekAvg = employees.length > 0 ? lastWeekHours / employees.length : 0;
+      const avgChange = thisWeekAvg - lastWeekAvg;
+      const avgChangePercent = lastWeekAvg > 0 ? ((avgChange / lastWeekAvg) * 100).toFixed(1) : 0;
+
+      // Most productive day
+      const dayHours = {};
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      thisWeekReports.forEach(r => {
+        const day = days[new Date(r.date).getDay()];
+        dayHours[day] = (dayHours[day] || 0) + parseFloat(r.hours || 0);
+      });
+      const mostProductiveDay = Object.keys(dayHours).length > 0
+        ? Object.entries(dayHours).sort((a, b) => b[1] - a[1])[0][0]
+        : 'N/A';
+      const leastProductiveDay = Object.keys(dayHours).length > 1
+        ? Object.entries(dayHours).sort((a, b) => a[1] - b[1])[0][0]
+        : 'N/A';
+
+      // Top performer
+      const employeeHours = {};
+      thisWeekReports.forEach(r => {
+        employeeHours[r.employee_name] = (employeeHours[r.employee_name] || 0) + parseFloat(r.hours || 0);
+      });
+      const topPerformer = Object.keys(employeeHours).length > 0
+        ? Object.entries(employeeHours).sort((a, b) => b[1] - a[1])[0]
+        : null;
+
+      // Project focus
+      const projectHours = {};
+      thisWeekReports.forEach(r => {
+        if (r.project) {
+          projectHours[r.project] = (projectHours[r.project] || 0) + parseFloat(r.hours || 0);
+        }
+      });
+      const topProject = Object.keys(projectHours).length > 0
+        ? Object.entries(projectHours).sort((a, b) => b[1] - a[1])[0]
+        : null;
+      const topProjectPercent = topProject && thisWeekHours > 0 
+        ? ((topProject[1] / thisWeekHours) * 100).toFixed(0)
+        : 0;
+
+      setInsights({
+        thisWeekHours,
+        lastWeekHours,
+        hoursChange,
+        hoursChangePercent,
+        thisWeekAvg: thisWeekAvg.toFixed(1),
+        lastWeekAvg: lastWeekAvg.toFixed(1),
+        avgChange: avgChange.toFixed(1),
+        avgChangePercent,
+        mostProductiveDay,
+        leastProductiveDay,
+        topPerformer,
+        topProject,
+        topProjectPercent
+      });
+    } catch (error) {
+      console.error('Error fetching insights:', error);
+    }
   };
 
   return (
@@ -1138,11 +1403,131 @@ function App() {
 
             <div className="section-header">
               <h2 className="section-title">Recent EOD Reports</h2>
-              <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
-                <Plus size={18} />
-                New Report
-              </button>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button className="btn btn-secondary" onClick={handleQuickAddClick}>
+                  <Clock size={18} />
+                  Quick Add
+                </button>
+                <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
+                  <Plus size={18} />
+                  New Report
+                </button>
+              </div>
             </div>
+
+            {/* Productivity Insights Widget */}
+            {insights && (
+              <div className="card" style={{ 
+                marginBottom: '2rem',
+                background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
+                border: '1px solid rgba(102, 126, 234, 0.3)'
+              }}>
+                <div className="card-header">
+                  <div className="card-title">📊 Productivity Insights - This Week</div>
+                </div>
+                <div style={{ 
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '1.5rem',
+                  marginTop: '1.5rem'
+                }}>
+                  <div>
+                    <div className="detail-label">Total Hours</div>
+                    <div style={{ 
+                      fontSize: '1.5rem',
+                      fontWeight: 700,
+                      color: '#fff',
+                      fontFamily: 'JetBrains Mono, monospace',
+                      marginTop: '0.5rem'
+                    }}>
+                      {insights.thisWeekHours.toFixed(1)}h
+                      <span style={{ 
+                        fontSize: '0.9rem',
+                        color: insights.hoursChange >= 0 ? '#10b981' : '#ef4444',
+                        marginLeft: '0.5rem'
+                      }}>
+                        {insights.hoursChange >= 0 ? '↑' : '↓'} {Math.abs(insights.hoursChangePercent)}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginTop: '0.25rem' }}>
+                      vs last week: {insights.lastWeekHours.toFixed(1)}h
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="detail-label">Avg Hours/Employee</div>
+                    <div style={{ 
+                      fontSize: '1.5rem',
+                      fontWeight: 700,
+                      color: '#fff',
+                      fontFamily: 'JetBrains Mono, monospace',
+                      marginTop: '0.5rem'
+                    }}>
+                      {insights.thisWeekAvg}h
+                      <span style={{ 
+                        fontSize: '0.9rem',
+                        color: insights.avgChange >= 0 ? '#10b981' : '#ef4444',
+                        marginLeft: '0.5rem'
+                      }}>
+                        {insights.avgChange >= 0 ? '↑' : '↓'} {Math.abs(insights.avgChangePercent)}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginTop: '0.25rem' }}>
+                      vs last week: {insights.lastWeekAvg}h
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="detail-label">Most Productive Day</div>
+                    <div style={{ 
+                      fontSize: '1.25rem',
+                      fontWeight: 700,
+                      color: '#667eea',
+                      marginTop: '0.5rem'
+                    }}>
+                      {insights.mostProductiveDay}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginTop: '0.25rem' }}>
+                      Least: {insights.leastProductiveDay}
+                    </div>
+                  </div>
+
+                  {insights.topPerformer && (
+                    <div>
+                      <div className="detail-label">Top Performer</div>
+                      <div style={{ 
+                        fontSize: '1.25rem',
+                        fontWeight: 700,
+                        color: '#667eea',
+                        marginTop: '0.5rem'
+                      }}>
+                        {insights.topPerformer[0]}
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginTop: '0.25rem' }}>
+                        {insights.topPerformer[1].toFixed(1)}h this week
+                      </div>
+                    </div>
+                  )}
+
+                  {insights.topProject && (
+                    <div>
+                      <div className="detail-label">Project Focus</div>
+                      <div style={{ 
+                        fontSize: '1.25rem',
+                        fontWeight: 700,
+                        color: '#667eea',
+                        marginTop: '0.5rem'
+                      }}>
+                        📱 {insights.topProject[0]}
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginTop: '0.25rem' }}>
+                        {insights.topProjectPercent}% of total hours
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {reports.slice(0, 5).length === 0 ? (
               <div className="empty-state">
@@ -1292,11 +1677,80 @@ function App() {
 
             <div className="section-header">
               <h2 className="section-title">All Reports ({reports.length})</h2>
-              <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
-                <Plus size={18} />
-                New Report
-              </button>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                {/* View Mode Toggle */}
+                <div style={{ 
+                  display: 'flex',
+                  background: 'rgba(15, 20, 40, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '12px',
+                  padding: '0.25rem'
+                }}>
+                  <button 
+                    className={`btn ${viewMode === 'cards' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setViewMode('cards')}
+                    style={{ 
+                      padding: '0.5rem 1rem',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <CheckSquare size={16} />
+                    Cards
+                  </button>
+                  <button 
+                    className={`btn ${viewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setViewMode('list')}
+                    style={{ 
+                      padding: '0.5rem 1rem',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <FileText size={16} />
+                    List
+                  </button>
+                </div>
+                
+                <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
+                  <Plus size={18} />
+                  New Report
+                </button>
+              </div>
             </div>
+
+            {/* Bulk Actions Bar */}
+            {showBulkActions && (
+              <div style={{
+                background: 'rgba(102, 126, 234, 0.2)',
+                border: '1px solid rgba(102, 126, 234, 0.3)',
+                borderRadius: '16px',
+                padding: '1.25rem',
+                marginBottom: '1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                animation: 'slideDown 0.3s ease-out'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <CheckSquare size={20} color="#667eea" />
+                  <span style={{ fontWeight: 600, color: '#fff' }}>
+                    {selectedReports.length} item{selectedReports.length > 1 ? 's' : ''} selected
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button className="btn btn-secondary" onClick={selectAllReports}>
+                    Select All ({reports.length})
+                  </button>
+                  <button className="btn btn-secondary" onClick={clearSelection}>
+                    <X size={18} />
+                    Clear
+                  </button>
+                  <button className="btn btn-danger" onClick={handleBulkDelete}>
+                    <Trash2 size={18} />
+                    Delete Selected
+                  </button>
+                </div>
+              </div>
+            )}
 
             {loading ? (
               <div className="loading">Loading reports...</div>
@@ -1306,134 +1760,398 @@ function App() {
                 <p>No reports found. Adjust filters or create a new report.</p>
               </div>
             ) : (
-              <div className="cards-grid">
-                {reports.map(report => (
-                  <div key={report.id} className="card">
-                    <div className="card-header">
-                      <div>
-                        <div className="card-title">{report.employee_name}</div>
-                        <div className="card-subtitle">{report.employee_role}</div>
-                        {report.project && (
-                          <div style={{ 
-                            marginTop: '0.5rem',
-                            padding: '0.25rem 0.75rem',
-                            background: 'rgba(102, 126, 234, 0.2)',
-                            borderRadius: '6px',
-                            fontSize: '0.85rem',
-                            color: '#c7d2fe',
-                            display: 'inline-block'
-                          }}>
-                            📱 {report.project}
-                          </div>
-                        )}
-                      </div>
-                      <div className="card-actions">
-                        <button 
-                          className="icon-btn"
-                          onClick={() => setSelectedReport(report)}
-                          title="View details"
-                        >
-                          <Eye size={18} />
-                        </button>
-                        {isReportEditable(report) ? (
-                          <button 
-                            className="icon-btn"
-                            onClick={() => handleEditReport(report)}
-                            title="Edit report (within 3 days)"
-                            style={{ color: '#67e8f9' }}
-                          >
-                            <Edit size={18} />
-                          </button>
-                        ) : (
-                          <button 
-                            className="icon-btn"
-                            disabled
-                            title="Report locked (older than 3 days)"
-                            style={{ opacity: 0.3, cursor: 'not-allowed' }}
-                          >
-                            <Edit size={18} />
-                          </button>
-                        )}
-                        <button 
-                          className="icon-btn danger"
-                          onClick={() => handleDeleteReport(report.id)}
-                          title="Delete report"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="report-details">
-                      <div className="detail-item">
-                        <div className="detail-label">Date</div>
-                        <div className="detail-value">{report.date}</div>
-                      </div>
-                      <div className="detail-item">
-                        <div className="detail-label">Hours</div>
-                        <div className="detail-value">{report.hours}h</div>
-                      </div>
-                      <div className="detail-item">
-                        <div className="detail-label">Screenshots</div>
-                        <div className="detail-value">{report.screenshots?.length || 0}</div>
-                      </div>
-                    </div>
-                    {report.description && (
-                      <p style={{ marginTop: '1rem', color: '#a5b4fc', fontSize: '0.95rem' }}>
-                        {report.description}
-                      </p>
-                    )}
-                    {report.screenshots && report.screenshots.length > 0 && (
-                      <div className="screenshots-grid">
-                        {report.screenshots.map((screenshot, idx) => (
-                          <div key={screenshot.id} style={{ position: 'relative' }}>
-                            <img 
-                              src={`${API_URL.replace('/api', '')}/uploads/${screenshot.filepath}`}
-                              alt={screenshot.filename}
-                              className="screenshot-thumb"
-                              onClick={() => openGallery(report.screenshots, idx)}
-                            />
-                            {screenshot.caption && (
-                              <div style={{
-                                position: 'absolute',
-                                bottom: 0,
-                                left: 0,
-                                right: 0,
-                                background: 'rgba(0, 0, 0, 0.8)',
-                                color: '#fff',
-                                fontSize: '0.75rem',
-                                padding: '0.25rem 0.5rem',
-                                borderBottomLeftRadius: '10px',
-                                borderBottomRightRadius: '10px',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
+              viewMode === 'cards' ? (
+                <div className="cards-grid">
+                  {reports.map(report => (
+                    <div key={report.id} className="card" style={{
+                      border: selectedReports.includes(report.id) 
+                        ? '2px solid #667eea'
+                        : '1px solid rgba(255, 255, 255, 0.05)'
+                    }}>
+                      <div className="card-header">
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                          <input 
+                            type="checkbox"
+                            checked={selectedReports.includes(report.id)}
+                            onChange={() => toggleReportSelection(report.id)}
+                            style={{ 
+                              width: '20px', 
+                              height: '20px',
+                              cursor: 'pointer',
+                              accentColor: '#667eea',
+                              marginTop: '0.25rem'
+                            }}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <div className="card-title">{report.employee_name}</div>
+                            <div className="card-subtitle">{report.employee_role}</div>
+                            {report.project && (
+                              <div style={{ 
+                                marginTop: '0.5rem',
+                                padding: '0.25rem 0.75rem',
+                                background: 'rgba(102, 126, 234, 0.2)',
+                                borderRadius: '6px',
+                                fontSize: '0.85rem',
+                                color: '#c7d2fe',
+                                display: 'inline-block'
                               }}>
-                                {screenshot.caption}
+                                📱 {report.project}
                               </div>
                             )}
                           </div>
-                        ))}
+                        </div>
+                        <div className="card-actions">
+                          <button 
+                            className="icon-btn"
+                            onClick={() => setSelectedReport(report)}
+                            title="View details"
+                          >
+                            <Eye size={18} />
+                          </button>
+                          {isReportEditable(report) ? (
+                            <button 
+                              className="icon-btn"
+                              onClick={() => handleEditReport(report)}
+                              title="Edit report (within 3 days)"
+                              style={{ color: '#67e8f9' }}
+                            >
+                              <Edit size={18} />
+                            </button>
+                          ) : (
+                            <button 
+                              className="icon-btn"
+                              disabled
+                              title="Report locked (older than 3 days)"
+                              style={{ opacity: 0.3, cursor: 'not-allowed' }}
+                            >
+                              <Edit size={18} />
+                            </button>
+                          )}
+                          <button 
+                            className="icon-btn danger"
+                            onClick={() => handleDeleteReport(report.id)}
+                            title="Delete report"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </div>
-                    )}
-                    {!isReportEditable(report) && (
-                      <div style={{
-                        marginTop: '1rem',
-                        padding: '0.5rem 0.75rem',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.2)',
-                        borderRadius: '8px',
-                        fontSize: '0.85rem',
-                        color: '#fca5a5',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                      }}>
-                        🔒 Report locked (older than 3 days)
+                      <div className="report-details">
+                        <div className="detail-item">
+                          <div className="detail-label">Date</div>
+                          <div className="detail-value">{report.date}</div>
+                        </div>
+                        <div className="detail-item">
+                          <div className="detail-label">Hours</div>
+                          <div className="detail-value">{report.hours}h</div>
+                        </div>
+                        <div className="detail-item">
+                          <div className="detail-label">Screenshots</div>
+                          <div className="detail-value">{report.screenshots?.length || 0}</div>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      {report.description && (
+                        <p style={{ marginTop: '1rem', color: '#a5b4fc', fontSize: '0.95rem' }}>
+                          {report.description}
+                        </p>
+                      )}
+                      {report.screenshots && report.screenshots.length > 0 && (
+                        <div className="screenshots-grid">
+                          {report.screenshots.map((screenshot, idx) => (
+                            <div key={screenshot.id} style={{ position: 'relative' }}>
+                              <img 
+                                src={`${API_URL.replace('/api', '')}/uploads/${screenshot.filepath}`}
+                                alt={screenshot.filename}
+                                className="screenshot-thumb"
+                                onClick={() => openGallery(report.screenshots, idx)}
+                              />
+                              {screenshot.caption && (
+                                <div style={{
+                                  position: 'absolute',
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  background: 'rgba(0, 0, 0, 0.8)',
+                                  color: '#fff',
+                                  fontSize: '0.75rem',
+                                  padding: '0.25rem 0.5rem',
+                                  borderBottomLeftRadius: '10px',
+                                  borderBottomRightRadius: '10px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {screenshot.caption}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {!isReportEditable(report) && (
+                        <div style={{
+                          marginTop: '1rem',
+                          padding: '0.5rem 0.75rem',
+                          background: 'rgba(239, 68, 68, 0.1)',
+                          border: '1px solid rgba(239, 68, 68, 0.2)',
+                          borderRadius: '8px',
+                          fontSize: '0.85rem',
+                          color: '#fca5a5',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem'
+                        }}>
+                          🔒 Report locked (older than 3 days)
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* List View */
+                <div style={{
+                  background: 'rgba(30, 35, 60, 0.6)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '16px',
+                  overflow: 'hidden'
+                }}>
+                  <table style={{ 
+                    width: '100%', 
+                    borderCollapse: 'collapse'
+                  }}>
+                    <thead style={{ 
+                      background: 'rgba(15, 20, 40, 0.8)',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 10
+                    }}>
+                      <tr>
+                        <th style={{ 
+                          padding: '1rem',
+                          textAlign: 'left',
+                          width: '40px'
+                        }}>
+                          <input 
+                            type="checkbox"
+                            checked={selectedReports.length === reports.length && reports.length > 0}
+                            onChange={() => selectedReports.length === reports.length ? clearSelection() : selectAllReports()}
+                            style={{ 
+                              width: '18px', 
+                              height: '18px',
+                              cursor: 'pointer',
+                              accentColor: '#667eea'
+                            }}
+                          />
+                        </th>
+                        <th 
+                          onClick={() => handleSort('date')}
+                          style={{ 
+                            padding: '1rem',
+                            textAlign: 'left',
+                            color: '#a5b4fc',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            cursor: 'pointer',
+                            userSelect: 'none'
+                          }}
+                        >
+                          Date {sortBy === 'date' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th 
+                          onClick={() => handleSort('employee')}
+                          style={{ 
+                            padding: '1rem',
+                            textAlign: 'left',
+                            color: '#a5b4fc',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            cursor: 'pointer',
+                            userSelect: 'none'
+                          }}
+                        >
+                          Employee {sortBy === 'employee' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th 
+                          onClick={() => handleSort('project')}
+                          style={{ 
+                            padding: '1rem',
+                            textAlign: 'left',
+                            color: '#a5b4fc',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            cursor: 'pointer',
+                            userSelect: 'none'
+                          }}
+                        >
+                          Project {sortBy === 'project' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th 
+                          onClick={() => handleSort('hours')}
+                          style={{ 
+                            padding: '1rem',
+                            textAlign: 'left',
+                            color: '#a5b4fc',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            cursor: 'pointer',
+                            userSelect: 'none'
+                          }}
+                        >
+                          Hours {sortBy === 'hours' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </th>
+                        <th style={{ 
+                          padding: '1rem',
+                          textAlign: 'left',
+                          color: '#a5b4fc',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em'
+                        }}>
+                          Screenshots
+                        </th>
+                        <th style={{ 
+                          padding: '1rem',
+                          textAlign: 'right',
+                          color: '#a5b4fc',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em'
+                        }}>
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortReports(reports).map(report => (
+                        <tr 
+                          key={report.id}
+                          style={{
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                            background: selectedReports.includes(report.id) 
+                              ? 'rgba(102, 126, 234, 0.1)'
+                              : 'transparent',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!selectedReports.includes(report.id)) {
+                              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!selectedReports.includes(report.id)) {
+                              e.currentTarget.style.background = 'transparent';
+                            }
+                          }}
+                        >
+                          <td style={{ padding: '1rem' }}>
+                            <input 
+                              type="checkbox"
+                              checked={selectedReports.includes(report.id)}
+                              onChange={() => toggleReportSelection(report.id)}
+                              style={{ 
+                                width: '18px', 
+                                height: '18px',
+                                cursor: 'pointer',
+                                accentColor: '#667eea'
+                              }}
+                            />
+                          </td>
+                          <td style={{ 
+                            padding: '1rem',
+                            color: '#e8eaf6',
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: '0.9rem'
+                          }}>
+                            {report.date}
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            <div style={{ color: '#fff', fontWeight: 600 }}>{report.employee_name}</div>
+                            <div style={{ fontSize: '0.85rem', color: '#a5b4fc' }}>{report.employee_role}</div>
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            {report.project && (
+                              <span style={{
+                                padding: '0.25rem 0.75rem',
+                                background: 'rgba(102, 126, 234, 0.2)',
+                                borderRadius: '6px',
+                                fontSize: '0.85rem',
+                                color: '#c7d2fe'
+                              }}>
+                                📱 {report.project}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ 
+                            padding: '1rem',
+                            color: '#fff',
+                            fontWeight: 600,
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: '1.1rem'
+                          }}>
+                            {report.hours}h
+                          </td>
+                          <td style={{ 
+                            padding: '1rem',
+                            color: '#a5b4fc',
+                            fontFamily: 'JetBrains Mono, monospace'
+                          }}>
+                            {report.screenshots?.length || 0}
+                          </td>
+                          <td style={{ padding: '1rem', textAlign: 'right' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                              <button 
+                                className="icon-btn"
+                                onClick={() => setSelectedReport(report)}
+                                title="View details"
+                              >
+                                <Eye size={18} />
+                              </button>
+                              {isReportEditable(report) ? (
+                                <button 
+                                  className="icon-btn"
+                                  onClick={() => handleEditReport(report)}
+                                  title="Edit report"
+                                  style={{ color: '#67e8f9' }}
+                                >
+                                  <Edit size={18} />
+                                </button>
+                              ) : (
+                                <button 
+                                  className="icon-btn"
+                                  disabled
+                                  title="Report locked"
+                                  style={{ opacity: 0.3, cursor: 'not-allowed' }}
+                                >
+                                  <Edit size={18} />
+                                </button>
+                              )}
+                              <button 
+                                className="icon-btn danger"
+                                onClick={() => handleDeleteReport(report.id)}
+                                title="Delete report"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </>
         )}
@@ -2387,6 +3105,130 @@ function App() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add Modal */}
+      {showQuickAddModal && (
+        <div className="modal-overlay" onClick={() => setShowQuickAddModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">⚡ Quick EOD Entry</h3>
+              <button className="close-btn" onClick={() => setShowQuickAddModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <form className="form" onSubmit={handleQuickSubmit}>
+              <div className="form-group">
+                <label className="form-label">Employee *</label>
+                <select 
+                  className="form-select"
+                  value={quickForm.employee_id}
+                  onChange={(e) => handleQuickEmployeeSelect(e.target.value)}
+                  required
+                >
+                  <option value="">Select Employee</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {lastReport && (
+                <div style={{
+                  padding: '1rem',
+                  background: 'rgba(102, 126, 234, 0.1)',
+                  border: '1px solid rgba(102, 126, 234, 0.2)',
+                  borderRadius: '12px',
+                  marginBottom: '1rem'
+                }}>
+                  <div style={{ 
+                    fontSize: '0.85rem', 
+                    color: '#a5b4fc',
+                    marginBottom: '0.5rem'
+                  }}>
+                    Last Report: 📱 {lastReport.project} • {lastReport.hours}h
+                  </div>
+                  <button 
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setQuickForm({
+                      ...quickForm,
+                      project: lastReport.project,
+                      hours: lastReport.hours.toString()
+                    })}
+                    style={{ width: '100%', fontSize: '0.9rem' }}
+                  >
+                    <Clock size={16} />
+                    Use Same Project & Hours
+                  </button>
+                </div>
+              )}
+              
+              <div className="form-group">
+                <label className="form-label">Date *</label>
+                <input 
+                  type="date"
+                  className="form-input"
+                  value={quickForm.date}
+                  onChange={(e) => setQuickForm({...quickForm, date: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">Project/App *</label>
+                <input 
+                  type="text"
+                  list="projects-list-quick"
+                  className="form-input"
+                  value={quickForm.project}
+                  onChange={(e) => setQuickForm({...quickForm, project: e.target.value})}
+                  required
+                  placeholder="e.g., Mobile App"
+                />
+                <datalist id="projects-list-quick">
+                  {projects.map(proj => (
+                    <option key={proj} value={proj} />
+                  ))}
+                </datalist>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">Hours Worked *</label>
+                <input 
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="24"
+                  className="form-input"
+                  value={quickForm.hours}
+                  onChange={(e) => setQuickForm({...quickForm, hours: e.target.value})}
+                  required
+                  placeholder="8"
+                />
+              </div>
+              
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+                <Clock size={18} />
+                Quick Submit
+              </button>
+
+              <div style={{ 
+                marginTop: '1rem',
+                padding: '0.75rem',
+                background: 'rgba(103, 232, 249, 0.1)',
+                border: '1px solid rgba(103, 232, 249, 0.2)',
+                borderRadius: '8px',
+                fontSize: '0.85rem',
+                color: '#67e8f9',
+                textAlign: 'center'
+              }}>
+                💡 Description & screenshots are optional. Click "New Report" for full form.
+              </div>
+            </form>
           </div>
         </div>
       )}
