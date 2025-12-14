@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import Cropper from 'react-easy-crop';
 import { 
   Users, Clock, FileText, Download, Plus, X, 
   Upload, Calendar, Filter, ChevronDown, Trash2,
-  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit
+  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -47,6 +48,15 @@ function App() {
   
   // Productivity Insights
   const [insights, setInsights] = useState(null);
+
+  // Image Cropping
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [currentCroppingIndex, setCurrentCroppingIndex] = useState(0);
+  const [tempFiles, setTempFiles] = useState([]);
   
   // Filters
   const [filters, setFilters] = useState({
@@ -238,16 +248,16 @@ function App() {
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    setReportForm({ ...reportForm, screenshots: files });
     
-    // Create previews
-    const previews = files.map((file, index) => ({
-      file,
-      url: URL.createObjectURL(file),
-      caption: '',
-      index
-    }));
-    setScreenshotPreviews(previews);
+    if (files.length === 0) return;
+    
+    // Store files temporarily and show cropping modal for first image
+    setTempFiles(files);
+    setCropImageSrc(URL.createObjectURL(files[0]));
+    setCurrentCroppingIndex(0);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    setShowCropModal(true);
   };
 
   const updateScreenshotCaption = (index, caption) => {
@@ -693,6 +703,108 @@ function App() {
     } catch (error) {
       console.error('Error fetching insights:', error);
     }
+  };
+
+  // Image Cropping Functions
+  const createImage = (url) =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.addEventListener('load', () => resolve(image));
+      image.addEventListener('error', (error) => reject(error));
+      image.setAttribute('crossOrigin', 'anonymous');
+      image.src = url;
+    });
+
+  const getCroppedImg = async (imageSrc, pixelCrop) => {
+    const image = await createImage(imageSrc);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = pixelCrop.width;
+    canvas.height = pixelCrop.height;
+
+    ctx.drawImage(
+      image,
+      pixelCrop.x,
+      pixelCrop.y,
+      pixelCrop.width,
+      pixelCrop.height,
+      0,
+      0,
+      pixelCrop.width,
+      pixelCrop.height
+    );
+
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        resolve(blob);
+      }, 'image/jpeg', 0.95);
+    });
+  };
+
+  const onCropComplete = useCallback((croppedArea, croppedAreaPixels) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const handleCropSave = async () => {
+    try {
+      const croppedBlob = await getCroppedImg(cropImageSrc, croppedAreaPixels);
+      const croppedFile = new File([croppedBlob], tempFiles[currentCroppingIndex].name, {
+        type: 'image/jpeg'
+      });
+
+      // Replace the file at current index with cropped version
+      const updatedFiles = [...tempFiles];
+      updatedFiles[currentCroppingIndex] = croppedFile;
+      setTempFiles(updatedFiles);
+
+      // Move to next image or finish
+      if (currentCroppingIndex < tempFiles.length - 1) {
+        // Crop next image
+        const nextFile = updatedFiles[currentCroppingIndex + 1];
+        setCropImageSrc(URL.createObjectURL(nextFile));
+        setCurrentCroppingIndex(currentCroppingIndex + 1);
+        setCrop({ x: 0, y: 0 });
+        setZoom(1);
+      } else {
+        // All done, create previews
+        finalizeCroppedImages(updatedFiles);
+      }
+    } catch (error) {
+      console.error('Error cropping image:', error);
+    }
+  };
+
+  const handleSkipCrop = () => {
+    // Skip current image, move to next
+    if (currentCroppingIndex < tempFiles.length - 1) {
+      const nextFile = tempFiles[currentCroppingIndex + 1];
+      setCropImageSrc(URL.createObjectURL(nextFile));
+      setCurrentCroppingIndex(currentCroppingIndex + 1);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+    } else {
+      // All done
+      finalizeCroppedImages(tempFiles);
+    }
+  };
+
+  const finalizeCroppedImages = (files) => {
+    setShowCropModal(false);
+    setCropImageSrc(null);
+    setCurrentCroppingIndex(0);
+    setTempFiles([]);
+
+    // Create previews
+    const previews = files.map((file, index) => ({
+      file,
+      url: URL.createObjectURL(file),
+      caption: '',
+      index
+    }));
+    
+    setReportForm({ ...reportForm, screenshots: files });
+    setScreenshotPreviews(previews);
   };
 
   return (
@@ -3229,6 +3341,133 @@ function App() {
                 💡 Description & screenshots are optional. Click "New Report" for full form.
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Crop Modal */}
+      {showCropModal && cropImageSrc && (
+        <div className="modal-overlay" style={{ zIndex: 2000 }}>
+          <div 
+            className="modal" 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              width: '800px',
+              padding: '2rem'
+            }}
+          >
+            <div className="modal-header">
+              <h3 className="modal-title">
+                ✂️ Crop Screenshot ({currentCroppingIndex + 1} of {tempFiles.length})
+              </h3>
+              <button 
+                className="close-btn" 
+                onClick={() => {
+                  setShowCropModal(false);
+                  setTempFiles([]);
+                  setCropImageSrc(null);
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{
+              marginBottom: '1.5rem',
+              padding: '1rem',
+              background: 'rgba(103, 232, 249, 0.1)',
+              border: '1px solid rgba(103, 232, 249, 0.2)',
+              borderRadius: '12px',
+              fontSize: '0.9rem',
+              color: '#67e8f9'
+            }}>
+              💡 Drag to reposition, scroll/pinch to zoom. You can skip if no cropping needed.
+            </div>
+
+            {/* Crop Area */}
+            <div style={{
+              position: 'relative',
+              width: '100%',
+              height: '400px',
+              background: '#000',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              marginBottom: '1.5rem'
+            }}>
+              <Cropper
+                image={cropImageSrc}
+                crop={crop}
+                zoom={zoom}
+                aspect={16 / 9}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+              />
+            </div>
+
+            {/* Zoom Control */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
+                Zoom: {zoom.toFixed(1)}x
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="3"
+                step="0.1"
+                value={zoom}
+                onChange={(e) => setZoom(parseFloat(e.target.value))}
+                style={{
+                  width: '100%',
+                  height: '8px',
+                  borderRadius: '4px',
+                  background: 'rgba(102, 126, 234, 0.2)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  accentColor: '#667eea'
+                }}
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '1rem',
+              justifyContent: 'space-between'
+            }}>
+              <button 
+                className="btn btn-secondary"
+                onClick={handleSkipCrop}
+                style={{ flex: 1 }}
+              >
+                <ChevronRight size={18} />
+                Skip This Image
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={handleCropSave}
+                style={{ flex: 1 }}
+              >
+                <Crop size={18} />
+                {currentCroppingIndex < tempFiles.length - 1 ? 'Crop & Next' : 'Crop & Finish'}
+              </button>
+            </div>
+
+            {/* Progress */}
+            <div style={{
+              marginTop: '1rem',
+              padding: '0.75rem',
+              background: 'rgba(15, 20, 40, 0.5)',
+              borderRadius: '8px',
+              textAlign: 'center',
+              fontSize: '0.85rem',
+              color: '#a5b4fc'
+            }}>
+              Image {currentCroppingIndex + 1} of {tempFiles.length} • 
+              Press "Skip" to use original image
+            </div>
           </div>
         </div>
       )}
