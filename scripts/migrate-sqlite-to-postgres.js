@@ -213,6 +213,17 @@ async function migrateScreenshots() {
           continue;
         }
 
+        // Check if the referenced report exists (foreign key constraint)
+        const reportExists = await client.query(
+          'SELECT id FROM eod_reports WHERE id = $1',
+          [screenshot.report_id]
+        );
+
+        if (reportExists.rows.length === 0) {
+          console.log(`   ⊘ Skipping screenshot ID ${screenshot.id} - references non-existent report ${screenshot.report_id}`);
+          continue;
+        }
+
         // Extract filename from filepath if not present
         const filename = screenshot.filename || screenshot.filepath.split('/').pop() || screenshot.filepath;
         const caption = screenshot.caption || null;
