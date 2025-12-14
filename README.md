@@ -82,7 +82,41 @@ cd ..
 cp .env.example .env
 ```
 
-4. **Start the application**
+4. **Set up the database**
+
+**Option A: Using Docker Compose (Recommended for local development)**
+```bash
+# Start PostgreSQL container
+docker-compose up -d postgres
+
+# Wait for PostgreSQL to be ready (about 10 seconds)
+# The app will automatically create tables on first run
+```
+
+**Option B: Using existing PostgreSQL installation**
+```bash
+# Create database
+createdb eod_monitor
+
+# Update .env file with your PostgreSQL credentials
+# DATABASE_URL=postgresql://your_user:your_password@localhost:5432/eod_monitor
+```
+
+5. **Migrate existing SQLite data (if you have it)**
+
+If you're upgrading from an older version with SQLite data:
+
+```bash
+# Install migration dependencies
+npm install
+
+# Run the migration script
+npm run migrate
+```
+
+See [scripts/MIGRATION_GUIDE.md](scripts/MIGRATION_GUIDE.md) for detailed migration instructions.
+
+6. **Start the application**
 
 **Development Mode (Recommended for testing):**
 
@@ -201,11 +235,18 @@ eod-monitor/
 │   │   └── index.css      # Global styles
 │   └── package.json
 ├── server/
-│   └── index.js           # Express server & API
-├── uploads/               # Uploaded screenshots (auto-created)
-├── eod_reports.db         # SQLite database (auto-created)
+│   ├── index.js           # Express server & API
+│   ├── db.js              # PostgreSQL connection & initialization
+│   └── uploads/           # Uploaded screenshots
+├── scripts/
+│   ├── migrate-sqlite-to-postgres.js  # Migration script
+│   ├── MIGRATION_GUIDE.md             # Migration documentation
+│   └── README.md                      # Scripts documentation
+├── eod_reports.db         # SQLite database (legacy, migrate to PostgreSQL)
 ├── package.json           # Server dependencies
 ├── .env                   # Environment variables
+├── docker-compose.yml     # Docker orchestration (PostgreSQL + App)
+├── render.yaml            # Render.com deployment config
 └── README.md
 ```
 
@@ -305,10 +346,19 @@ See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for complete deployment guide.
 ### Deploy with Docker
 
 ```bash
-docker-compose up
+# Start all services (PostgreSQL + App)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop all services
+docker-compose down
 ```
 
 Access at `http://localhost:5000`
+
+**Note:** The PostgreSQL data is persisted in a Docker volume, so it won't be lost when containers restart.
 
 ## Troubleshooting
 
