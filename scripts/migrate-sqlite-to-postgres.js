@@ -27,9 +27,16 @@ require('dotenv').config();
 const sqliteDbPath = path.join(__dirname, '..', 'eod_reports.db');
 const sqliteDb = new sqlite3.Database(sqliteDbPath);
 
+// Determine if SSL is needed (for remote databases like Render, AWS, etc.)
+const isRemoteDb = process.env.DATABASE_URL &&
+  (process.env.DATABASE_URL.includes('render.com') ||
+   process.env.DATABASE_URL.includes('amazonaws.com') ||
+   process.env.DATABASE_URL.includes('railway.app') ||
+   !process.env.DATABASE_URL.includes('localhost'));
+
 const pgPool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: isRemoteDb ? { rejectUnauthorized: false } : false
 });
 
 // Promisify SQLite queries
