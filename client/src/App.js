@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import Cropper from 'react-easy-crop';
 import { 
@@ -16,6 +16,10 @@ function App() {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState([]);
+  
+  // File input refs
+  const fileInputRef = useRef(null);
+  const editFileInputRef = useRef(null);
   
   // Modals
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
@@ -197,10 +201,14 @@ function App() {
 
   const handleAddReport = async (e) => {
     e.preventDefault();
+    
+    // Convert hours to decimal format
+    const decimalHours = convertTimeToHours(reportForm.hours);
+    
     const formData = new FormData();
     formData.append('employee_id', reportForm.employee_id);
     formData.append('date', reportForm.date);
-    formData.append('hours', reportForm.hours);
+    formData.append('hours', decimalHours);
     formData.append('project', reportForm.project);
     formData.append('description', reportForm.description);
     
@@ -227,6 +235,12 @@ function App() {
       });
       setScreenshotPreviews([]);
       setShowReportModal(false);
+      
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
       fetchReports();
       fetchStats();
       fetchProjects();
@@ -271,6 +285,14 @@ function App() {
     const updatedPreviews = screenshotPreviews.filter((_, i) => i !== index);
     setReportForm({ ...reportForm, screenshots: updatedFiles });
     setScreenshotPreviews(updatedPreviews);
+    
+    // Reset file input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    if (editFileInputRef.current) {
+      editFileInputRef.current.value = '';
+    }
   };
 
   const openGallery = (screenshots, startIndex = 0) => {
@@ -316,10 +338,14 @@ function App() {
 
   const handleUpdateReport = async (e) => {
     e.preventDefault();
+    
+    // Convert hours to decimal format
+    const decimalHours = convertTimeToHours(reportForm.hours);
+    
     const formData = new FormData();
     formData.append('employee_id', reportForm.employee_id);
     formData.append('date', reportForm.date);
-    formData.append('hours', reportForm.hours);
+    formData.append('hours', decimalHours);
     formData.append('project', reportForm.project);
     formData.append('description', reportForm.description);
     
@@ -347,6 +373,12 @@ function App() {
       setScreenshotPreviews([]);
       setShowEditReportModal(false);
       setEditingReport(null);
+      
+      // Reset file input
+      if (editFileInputRef.current) {
+        editFileInputRef.current.value = '';
+      }
+      
       fetchReports();
       fetchStats();
       fetchProjects();
@@ -472,6 +504,51 @@ function App() {
     setAnalyticsFilters({...analyticsFilters, selected_projects: []});
   };
 
+  // Helper function to convert time format to decimal hours
+  const convertTimeToHours = (timeString) => {
+    if (!timeString) return '';
+    
+    // If it's already a number (decimal format), round it
+    if (!isNaN(timeString) && !timeString.includes(':')) {
+      return Math.round(parseFloat(timeString) * 100) / 100;
+    }
+    
+    // Parse HH:MM:SS or HH:MM format
+    const parts = timeString.split(':');
+    
+    if (parts.length === 1) {
+      // Just hours (e.g., "8")
+      return Math.round(parseFloat(parts[0]) * 100) / 100;
+    } else if (parts.length === 2) {
+      // HH:MM format (e.g., "7:30")
+      const hours = parseInt(parts[0]) || 0;
+      const minutes = parseInt(parts[1]) || 0;
+      const result = hours + (minutes / 60);
+      return Math.round(result * 100) / 100;
+    } else if (parts.length === 3) {
+      // HH:MM:SS format (e.g., "7:30:45")
+      const hours = parseInt(parts[0]) || 0;
+      const minutes = parseInt(parts[1]) || 0;
+      const seconds = parseInt(parts[2]) || 0;
+      const result = hours + (minutes / 60) + (seconds / 3600);
+      return Math.round(result * 100) / 100;
+    }
+    
+    return '';
+  };
+
+  // Format decimal hours to readable string for display
+  const formatHoursDisplay = (hours) => {
+    if (!hours) return '';
+    const h = Math.floor(hours);
+    const m = Math.floor((hours - h) * 60);
+    const s = Math.round(((hours - h) * 60 - m) * 60);
+    
+    if (s === 0 && m === 0) return `${h}h`;
+    if (s === 0) return `${h}h ${m}m`;
+    return `${h}h ${m}m ${s}s`;
+  };
+
   // Quick Entry Functions
   const handleQuickAddClick = () => {
     setQuickForm({
@@ -508,11 +585,15 @@ function App() {
 
   const handleQuickSubmit = async (e) => {
     e.preventDefault();
+    
+    // Convert hours to decimal format
+    const decimalHours = convertTimeToHours(quickForm.hours);
+    
     try {
       await axios.post(`${API_URL}/reports`, {
         employee_id: quickForm.employee_id,
         date: quickForm.date,
-        hours: quickForm.hours,
+        hours: decimalHours,
         project: quickForm.project,
         description: ''
       });
@@ -1226,7 +1307,7 @@ function App() {
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 24px;
           padding: 2rem;
-          max-width: 600px;
+          max-width: 900px;
           width: 90%;
           max-height: 90vh;
           overflow-y: auto;
@@ -1492,7 +1573,7 @@ function App() {
                 <div className="stat-header">
                   <div>
                     <div className="stat-label">Total Hours</div>
-                    <div className="stat-value">{stats.totalHours || 0}</div>
+                    <div className="stat-value">{stats.totalHours ? parseFloat(stats.totalHours).toFixed(2) : 0}</div>
                   </div>
                   <div className="stat-icon">
                     <Clock size={24} color="white" />
@@ -1552,7 +1633,7 @@ function App() {
                       fontFamily: 'JetBrains Mono, monospace',
                       marginTop: '0.5rem'
                     }}>
-                      {insights.thisWeekHours.toFixed(1)}h
+                      {insights.thisWeekHours.toFixed(2)}h
                       <span style={{ 
                         fontSize: '0.9rem',
                         color: insights.hoursChange >= 0 ? '#10b981' : '#ef4444',
@@ -1702,7 +1783,7 @@ function App() {
                       </div>
                       <div className="detail-item">
                         <div className="detail-label">Hours</div>
-                        <div className="detail-value">{report.hours}h</div>
+                        <div className="detail-value">{parseFloat(report.hours).toFixed(2)}h</div>
                       </div>
                       <div className="detail-item">
                         <div className="detail-label">Screenshots</div>
@@ -1710,7 +1791,13 @@ function App() {
                       </div>
                     </div>
                     {report.description && (
-                      <p style={{ marginTop: '1rem', color: '#a5b4fc', fontSize: '0.95rem' }}>
+                      <p style={{ 
+                        marginTop: '1rem', 
+                        color: '#a5b4fc', 
+                        fontSize: '0.95rem',
+                        whiteSpace: 'pre-wrap',
+                        wordWrap: 'break-word'
+                      }}>
                         {report.description}
                       </p>
                     )}
@@ -1955,7 +2042,7 @@ function App() {
                         </div>
                         <div className="detail-item">
                           <div className="detail-label">Hours</div>
-                          <div className="detail-value">{report.hours}h</div>
+                          <div className="detail-value">{parseFloat(report.hours).toFixed(2)}h</div>
                         </div>
                         <div className="detail-item">
                           <div className="detail-label">Screenshots</div>
@@ -1963,7 +2050,13 @@ function App() {
                         </div>
                       </div>
                       {report.description && (
-                        <p style={{ marginTop: '1rem', color: '#a5b4fc', fontSize: '0.95rem' }}>
+                        <p style={{ 
+                          marginTop: '1rem', 
+                          color: '#a5b4fc', 
+                          fontSize: '0.95rem',
+                          whiteSpace: 'pre-wrap',
+                          wordWrap: 'break-word'
+                        }}>
                           {report.description}
                         </p>
                       )}
@@ -2212,7 +2305,7 @@ function App() {
                             fontFamily: 'JetBrains Mono, monospace',
                             fontSize: '1.1rem'
                           }}>
-                            {report.hours}h
+                            {parseFloat(report.hours).toFixed(2)}h
                           </td>
                           <td style={{ 
                             padding: '1rem',
@@ -2471,7 +2564,7 @@ function App() {
                             WebkitTextFillColor: 'transparent',
                             backgroundClip: 'text'
                           }}>
-                            {empData.total_hours.toFixed(1)}h
+                            {empData.total_hours.toFixed(2)}h
                           </div>
                         </div>
                         
@@ -2520,7 +2613,7 @@ function App() {
                                   fontWeight: 600,
                                   fontFamily: 'JetBrains Mono, monospace'
                                 }}>
-                                  {report.hours}h
+                                  {parseFloat(report.hours).toFixed(2)}h
                                 </span>
                               </div>
                             ))}
@@ -2568,7 +2661,7 @@ function App() {
                             WebkitTextFillColor: 'transparent',
                             backgroundClip: 'text'
                           }}>
-                            {projData.total_hours.toFixed(1)}h
+                            {projData.total_hours.toFixed(2)}h
                           </div>
                         </div>
                         
@@ -2619,7 +2712,7 @@ function App() {
                                   fontWeight: 600,
                                   fontFamily: 'JetBrains Mono, monospace'
                                 }}>
-                                  {report.hours}h
+                                  {parseFloat(report.hours).toFixed(2)}h
                                 </span>
                               </div>
                             ))}
@@ -2792,16 +2885,16 @@ function App() {
               <div className="form-group">
                 <label className="form-label">Hours Worked *</label>
                 <input 
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="24"
+                  type="text"
                   className="form-input"
                   value={reportForm.hours}
                   onChange={(e) => setReportForm({...reportForm, hours: e.target.value})}
                   required
-                  placeholder="8"
+                  placeholder="8 or 7:30 or 7:30:45"
                 />
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                  Enter as decimal (8.5) or time format (7:30:00)
+                </div>
               </div>
               
               <div className="form-group">
@@ -2823,6 +2916,7 @@ function App() {
                     accept="image/*"
                     multiple
                     onChange={handleFileChange}
+                    ref={fileInputRef}
                   />
                   <Upload size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
                   <div style={{ color: '#a5b4fc', marginBottom: '0.25rem' }}>
@@ -2977,16 +3071,16 @@ function App() {
               <div className="form-group">
                 <label className="form-label">Hours Worked *</label>
                 <input 
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="24"
+                  type="text"
                   className="form-input"
                   value={reportForm.hours}
                   onChange={(e) => setReportForm({...reportForm, hours: e.target.value})}
                   required
-                  placeholder="8"
+                  placeholder="8 or 7:30 or 7:30:45"
                 />
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                  Enter as decimal (8.5) or time format (7:30:00)
+                </div>
               </div>
               
               <div className="form-group">
@@ -3052,6 +3146,7 @@ function App() {
                     accept="image/*"
                     multiple
                     onChange={handleFileChange}
+                    ref={editFileInputRef}
                   />
                   <Upload size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
                   <div style={{ color: '#a5b4fc', marginBottom: '0.25rem' }}>
@@ -3161,7 +3256,7 @@ function App() {
                 </div>
                 <div className="detail-item">
                   <div className="detail-label">Hours</div>
-                  <div className="detail-value">{selectedReport.hours}h</div>
+                  <div className="detail-value">{parseFloat(selectedReport.hours).toFixed(2)}h</div>
                 </div>
                 {selectedReport.project && (
                   <div className="detail-item">
@@ -3174,7 +3269,13 @@ function App() {
               {selectedReport.description && (
                 <div>
                   <div className="detail-label">Description</div>
-                  <p style={{ color: '#c7d2fe', marginTop: '0.5rem', lineHeight: '1.6' }}>
+                  <p style={{ 
+                    color: '#c7d2fe', 
+                    marginTop: '0.5rem', 
+                    lineHeight: '1.6',
+                    whiteSpace: 'pre-wrap',
+                    wordWrap: 'break-word'
+                  }}>
                     {selectedReport.description}
                   </p>
                 </div>
@@ -3261,7 +3362,7 @@ function App() {
                     color: '#a5b4fc',
                     marginBottom: '0.5rem'
                   }}>
-                    Last Report: 📱 {lastReport.project} • {lastReport.hours}h
+                    Last Report: 📱 {lastReport.project} • {parseFloat(lastReport.hours).toFixed(2)}h
                   </div>
                   <button 
                     type="button"
@@ -3311,16 +3412,16 @@ function App() {
               <div className="form-group">
                 <label className="form-label">Hours Worked *</label>
                 <input 
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  max="24"
+                  type="text"
                   className="form-input"
                   value={quickForm.hours}
                   onChange={(e) => setQuickForm({...quickForm, hours: e.target.value})}
                   required
-                  placeholder="8"
+                  placeholder="8 or 7:30 or 7:30:45"
                 />
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                  Enter as decimal (8.5) or time format (7:30:00)
+                </div>
               </div>
               
               <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
@@ -3383,7 +3484,7 @@ function App() {
               fontSize: '0.9rem',
               color: '#67e8f9'
             }}>
-              💡 Drag to reposition, scroll/pinch to zoom. You can skip if no cropping needed.
+              💡 Drag to reposition, drag corners to resize, scroll/pinch to zoom. Crop to any size! Skip if not needed.
             </div>
 
             {/* Crop Area */}
@@ -3400,7 +3501,6 @@ function App() {
                 image={cropImageSrc}
                 crop={crop}
                 zoom={zoom}
-                aspect={16 / 9}
                 onCropChange={setCrop}
                 onZoomChange={setZoom}
                 onCropComplete={onCropComplete}
