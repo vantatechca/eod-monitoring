@@ -6,7 +6,11 @@ import {
   Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop
 } from 'lucide-react';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// In production on Render, use relative path (same domain)
+// In development, use localhost
+const API_URL = process.env.NODE_ENV === 'production'
+  ? '/api'  // Relative path for production (same server)
+  : (process.env.REACT_APP_API_URL || 'http://localhost:5000/api');
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
