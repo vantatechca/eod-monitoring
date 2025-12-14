@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import Cropper from 'react-easy-crop';
 import { 
   Users, Clock, FileText, Download, Plus, X, 
   Upload, Calendar, Filter, ChevronDown, Trash2,
@@ -20,6 +19,8 @@ function App() {
   // File input refs
   const fileInputRef = useRef(null);
   const editFileInputRef = useRef(null);
+  const cropCanvasRef = useRef(null);
+  const cropImageRef = useRef(null);
   
   // Modals
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
@@ -56,11 +57,14 @@ function App() {
   // Image Cropping
   const [showCropModal, setShowCropModal] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState(null);
-  const [crop, setCrop] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [cropRect, setCropRect] = useState({ x: 50, y: 50, width: 200, height: 200 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [resizeHandle, setResizeHandle] = useState(null);
   const [currentCroppingIndex, setCurrentCroppingIndex] = useState(0);
   const [tempFiles, setTempFiles] = useState([]);
+  const [imageNaturalSize, setImageNaturalSize] = useState({ width: 0, height: 0 });
   
   // Filters
   const [filters, setFilters] = useState({
@@ -129,6 +133,70 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showGallery, currentImageIndex, galleryImages]);
+
+  // Mouse handlers for crop box
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!cropImageRef.current) return;
+      
+      const imgRect = cropImageRef.current.getBoundingClientRect();
+      
+      if (isDragging) {
+        // Dragging the whole box
+        let newX = e.clientX - dragStart.x;
+        let newY = e.clientY - dragStart.y;
+        
+        // Constrain to image bounds
+        newX = Math.max(0, Math.min(newX, imgRect.width - cropRect.width));
+        newY = Math.max(0, Math.min(newY, imgRect.height - cropRect.height));
+        
+        setCropRect({ ...cropRect, x: newX, y: newY });
+      } else if (isResizing && resizeHandle) {
+        // Resizing the box
+        const deltaX = e.clientX - dragStart.x;
+        const deltaY = e.clientY - dragStart.y;
+        let newRect = { ...cropRect };
+        
+        if (resizeHandle.includes('e')) {
+          newRect.width = Math.max(50, Math.min(cropRect.width + deltaX, imgRect.width - cropRect.x));
+        }
+        if (resizeHandle.includes('w')) {
+          const newWidth = Math.max(50, cropRect.width - deltaX);
+          const newX = Math.max(0, cropRect.x + (cropRect.width - newWidth));
+          newRect.x = newX;
+          newRect.width = newWidth;
+        }
+        if (resizeHandle.includes('s')) {
+          newRect.height = Math.max(50, Math.min(cropRect.height + deltaY, imgRect.height - cropRect.y));
+        }
+        if (resizeHandle.includes('n')) {
+          const newHeight = Math.max(50, cropRect.height - deltaY);
+          const newY = Math.max(0, cropRect.y + (cropRect.height - newHeight));
+          newRect.y = newY;
+          newRect.height = newHeight;
+        }
+        
+        setCropRect(newRect);
+        setDragStart({ x: e.clientX, y: e.clientY });
+      }
+    };
+    
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizing(false);
+      setResizeHandle(null);
+    };
+    
+    if (isDragging || isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, isResizing, cropRect, dragStart, resizeHandle]);
 
   const fetchEmployees = async () => {
     try {
@@ -269,8 +337,7 @@ function App() {
     setTempFiles(files);
     setCropImageSrc(URL.createObjectURL(files[0]));
     setCurrentCroppingIndex(0);
-    setCrop({ x: 0, y: 0 });
-    setZoom(1);
+    setCropRect({ x: 50, y: 50, width: 200, height: 200 });
     setShowCropModal(true);
   };
 
@@ -796,24 +863,37 @@ function App() {
       image.src = url;
     });
 
-  const getCroppedImg = async (imageSrc, pixelCrop) => {
+  const getCroppedImg = async (imageSrc, cropRect, naturalSize) => {
     const image = await createImage(imageSrc);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
 
-    canvas.width = pixelCrop.width;
-    canvas.height = pixelCrop.height;
+    // Calculate scale between displayed image and natural size
+    const displayedImg = cropImageRef.current;
+    const scaleX = naturalSize.width / displayedImg.width;
+    const scaleY = naturalSize.height / displayedImg.height;
+
+    // Scale crop coordinates to natural image size
+    const scaledCrop = {
+      x: cropRect.x * scaleX,
+      y: cropRect.y * scaleY,
+      width: cropRect.width * scaleX,
+      height: cropRect.height * scaleY
+    };
+
+    canvas.width = scaledCrop.width;
+    canvas.height = scaledCrop.height;
 
     ctx.drawImage(
       image,
-      pixelCrop.x,
-      pixelCrop.y,
-      pixelCrop.width,
-      pixelCrop.height,
+      scaledCrop.x,
+      scaledCrop.y,
+      scaledCrop.width,
+      scaledCrop.height,
       0,
       0,
-      pixelCrop.width,
-      pixelCrop.height
+      scaledCrop.width,
+      scaledCrop.height
     );
 
     return new Promise((resolve) => {
@@ -823,13 +903,9 @@ function App() {
     });
   };
 
-  const onCropComplete = useCallback((croppedArea, croppedAreaPixels) => {
-    setCroppedAreaPixels(croppedAreaPixels);
-  }, []);
-
   const handleCropSave = async () => {
     try {
-      const croppedBlob = await getCroppedImg(cropImageSrc, croppedAreaPixels);
+      const croppedBlob = await getCroppedImg(cropImageSrc, cropRect, imageNaturalSize);
       const croppedFile = new File([croppedBlob], tempFiles[currentCroppingIndex].name, {
         type: 'image/jpeg'
       });
@@ -845,8 +921,8 @@ function App() {
         const nextFile = updatedFiles[currentCroppingIndex + 1];
         setCropImageSrc(URL.createObjectURL(nextFile));
         setCurrentCroppingIndex(currentCroppingIndex + 1);
-        setCrop({ x: 0, y: 0 });
-        setZoom(1);
+        // Reset crop rectangle to center
+        setCropRect({ x: 50, y: 50, width: 200, height: 200 });
       } else {
         // All done, create previews
         finalizeCroppedImages(updatedFiles);
@@ -862,8 +938,7 @@ function App() {
       const nextFile = tempFiles[currentCroppingIndex + 1];
       setCropImageSrc(URL.createObjectURL(nextFile));
       setCurrentCroppingIndex(currentCroppingIndex + 1);
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
+      setCropRect({ x: 50, y: 50, width: 200, height: 200 });
     } else {
       // All done
       finalizeCroppedImages(tempFiles);
@@ -875,6 +950,7 @@ function App() {
     setCropImageSrc(null);
     setCurrentCroppingIndex(0);
     setTempFiles([]);
+    setCropRect({ x: 50, y: 50, width: 200, height: 200 });
 
     // Create previews
     const previews = files.map((file, index) => ({
@@ -3455,7 +3531,7 @@ function App() {
             style={{ 
               maxWidth: '90vw',
               maxHeight: '90vh',
-              width: '800px',
+              width: '900px',
               padding: '2rem'
             }}
           >
@@ -3484,51 +3560,112 @@ function App() {
               fontSize: '0.9rem',
               color: '#67e8f9'
             }}>
-              💡 Drag to reposition, drag corners to resize, scroll/pinch to zoom. Crop to any size! Skip if not needed.
+              💡 Drag the selection box to move it. Drag corners/edges to resize. Select the area you want to keep.
             </div>
 
             {/* Crop Area */}
             <div style={{
               position: 'relative',
               width: '100%',
-              height: '400px',
+              maxHeight: '500px',
               background: '#000',
               borderRadius: '12px',
-              overflow: 'hidden',
-              marginBottom: '1.5rem'
+              overflow: 'auto',
+              marginBottom: '1.5rem',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
             }}>
-              <Cropper
-                image={cropImageSrc}
-                crop={crop}
-                zoom={zoom}
-                onCropChange={setCrop}
-                onZoomChange={setZoom}
-                onCropComplete={onCropComplete}
-              />
-            </div>
-
-            {/* Zoom Control */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
-                Zoom: {zoom.toFixed(1)}x
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="3"
-                step="0.1"
-                value={zoom}
-                onChange={(e) => setZoom(parseFloat(e.target.value))}
-                style={{
-                  width: '100%',
-                  height: '8px',
-                  borderRadius: '4px',
-                  background: 'rgba(102, 126, 234, 0.2)',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  accentColor: '#667eea'
-                }}
-              />
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <img
+                  ref={cropImageRef}
+                  src={cropImageSrc}
+                  alt="Crop"
+                  onLoad={(e) => {
+                    setImageNaturalSize({
+                      width: e.target.naturalWidth,
+                      height: e.target.naturalHeight
+                    });
+                  }}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '500px',
+                    display: 'block',
+                    userSelect: 'none'
+                  }}
+                  draggable={false}
+                />
+                
+                {/* Crop selection box */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${cropRect.x}px`,
+                    top: `${cropRect.y}px`,
+                    width: `${cropRect.width}px`,
+                    height: `${cropRect.height}px`,
+                    border: '2px solid #667eea',
+                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
+                    cursor: 'move',
+                    userSelect: 'none'
+                  }}
+                  onMouseDown={(e) => {
+                    if (e.target === e.currentTarget) {
+                      setIsDragging(true);
+                      setDragStart({
+                        x: e.clientX - cropRect.x,
+                        y: e.clientY - cropRect.y
+                      });
+                    }
+                  }}
+                >
+                  {/* Corner handles */}
+                  {['nw', 'ne', 'sw', 'se'].map(corner => (
+                    <div
+                      key={corner}
+                      style={{
+                        position: 'absolute',
+                        width: '12px',
+                        height: '12px',
+                        background: '#667eea',
+                        border: '2px solid #fff',
+                        borderRadius: '50%',
+                        ...(corner === 'nw' && { top: '-6px', left: '-6px', cursor: 'nw-resize' }),
+                        ...(corner === 'ne' && { top: '-6px', right: '-6px', cursor: 'ne-resize' }),
+                        ...(corner === 'sw' && { bottom: '-6px', left: '-6px', cursor: 'sw-resize' }),
+                        ...(corner === 'se' && { bottom: '-6px', right: '-6px', cursor: 'se-resize' })
+                      }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setIsResizing(true);
+                        setResizeHandle(corner);
+                        setDragStart({ x: e.clientX, y: e.clientY });
+                      }}
+                    />
+                  ))}
+                  
+                  {/* Edge handles */}
+                  {['n', 'e', 's', 'w'].map(edge => (
+                    <div
+                      key={edge}
+                      style={{
+                        position: 'absolute',
+                        background: 'transparent',
+                        ...(edge === 'n' && { top: '-4px', left: 0, right: 0, height: '8px', cursor: 'n-resize' }),
+                        ...(edge === 's' && { bottom: '-4px', left: 0, right: 0, height: '8px', cursor: 's-resize' }),
+                        ...(edge === 'w' && { left: '-4px', top: 0, bottom: 0, width: '8px', cursor: 'w-resize' }),
+                        ...(edge === 'e' && { right: '-4px', top: 0, bottom: 0, width: '8px', cursor: 'e-resize' })
+                      }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setIsResizing(true);
+                        setResizeHandle(edge);
+                        setDragStart({ x: e.clientX, y: e.clientY });
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Action Buttons */}
