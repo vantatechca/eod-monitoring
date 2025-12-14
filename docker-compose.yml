@@ -1,6 +1,25 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: eod_user
+      POSTGRES_PASSWORD: eod_password
+      POSTGRES_DB: eod_monitor
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eod_user -d eod_monitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # EOD Monitor Application
   eod-monitor:
     build: .
     ports:
@@ -8,13 +27,19 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
+      - DATABASE_URL=postgresql://eod_user:eod_password@postgres:5432/eod_monitor
     volumes:
-      - ./uploads:/app/uploads
-      - ./eod_reports.db:/app/eod_reports.db
+      - ./server/uploads:/app/server/uploads
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  postgres_data:
