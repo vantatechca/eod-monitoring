@@ -12,6 +12,9 @@ const { pool, initializeDatabase } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy - required for Render.com and other reverse proxies
+app.set('trust proxy', 1);
+
 // CORS Configuration
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' && process.env.ALLOWED_ORIGINS
