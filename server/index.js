@@ -304,11 +304,17 @@ app.post('/api/reports', upload.array('screenshots', 10), async (req, res) => {
       }
     }
 
+    // Fetch the created screenshots to return complete data
+    const screenshotsResult = await client.query(
+      'SELECT * FROM screenshots WHERE report_id = $1',
+      [reportId]
+    );
+
     await client.query('COMMIT');
 
     res.status(201).json({
       ...reportResult.rows[0],
-      screenshots: req.files ? req.files.length : 0
+      screenshots: screenshotsResult.rows
     });
   } catch (err) {
     await client.query('ROLLBACK');
