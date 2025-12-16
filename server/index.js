@@ -42,9 +42,13 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, 'uploads');
+// Use environment variable for Render disk mount, fallback to local path
+const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log(`📁 Created uploads directory at: ${uploadsDir}`);
+} else {
+  console.log(`📁 Using uploads directory at: ${uploadsDir}`);
 }
 
 // Serve static files (uploaded images) - BEFORE rate limiter
@@ -297,6 +301,7 @@ app.post('/api/reports', upload.array('screenshots', 10), async (req, res) => {
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
         const caption = captionsArray[i] || '';
+        console.log(`📸 Saving screenshot: ${file.filename} for report ${reportId}`);
         await client.query(
           'INSERT INTO screenshots (report_id, filename, filepath, caption) VALUES ($1, $2, $3, $4)',
           [reportId, file.originalname, file.filename, caption]
