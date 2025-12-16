@@ -20,6 +20,8 @@ services:
           property: connectionString
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: UPLOADS_DIR
+        value: /opt/render/project/src/server/uploads
 
 databases:
   - name: eod-monitoring-db
