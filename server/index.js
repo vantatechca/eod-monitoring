@@ -27,11 +27,14 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for static files (images)
+    return req.path.startsWith('/uploads');
+  }
 });
 
 // Middleware
 app.use(cors(corsOptions));
-app.use(limiter);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -41,8 +44,11 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Serve static files (uploaded images)
+// Serve static files (uploaded images) - BEFORE rate limiter
 app.use('/uploads', express.static(uploadsDir));
+
+// Apply rate limiting to API routes only
+app.use('/api', limiter);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
