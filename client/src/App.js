@@ -96,6 +96,11 @@ function App() {
   const [isReportFormDirty, setIsReportFormDirty] = useState(false);
   const [isEditFormDirty, setIsEditFormDirty] = useState(false);
   const [isQuickFormDirty, setIsQuickFormDirty] = useState(false);
+
+  // Screenshot Management
+  const [editingScreenshots, setEditingScreenshots] = useState([]);
+  const [deletedScreenshotIds, setDeletedScreenshotIds] = useState([]);
+  const [editingScreenshotCaptions, setEditingScreenshotCaptions] = useState({});
   
   // Filters
   const [filters, setFilters] = useState({
@@ -147,6 +152,13 @@ function App() {
   useEffect(() => {
     setShowBulkActions(selectedReports.length > 0);
   }, [selectedReports]);
+
+  // Auto-calculate analytics when filters change
+  useEffect(() => {
+    if (activeTab === 'analytics' && (analyticsFilters.selected_employees.length > 0 || analyticsFilters.selected_projects.length > 0)) {
+      fetchAnalytics();
+    }
+  }, [analyticsFilters.selected_employees, analyticsFilters.selected_projects, analyticsFilters.start_date, analyticsFilters.end_date, activeTab]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -603,39 +615,73 @@ function App() {
 
   const handleEditReport = (report) => {
     setEditingReport(report);
+    // Format date properly for input type="date" (needs YYYY-MM-DD format)
+    const dateValue = report.date ? new Date(report.date).toISOString().split('T')[0] : '';
     setReportForm({
       employee_id: report.employee_id,
-      date: report.date,
+      date: dateValue,
       hours: report.hours,
       project: report.project || '',
       description: report.description || '',
       screenshots: []
     });
     setScreenshotPreviews([]);
+
+    // Initialize screenshot management
+    setEditingScreenshots(report.screenshots || []);
+    setDeletedScreenshotIds([]);
+    const captions = {};
+    (report.screenshots || []).forEach(screenshot => {
+      captions[screenshot.id] = screenshot.caption || '';
+    });
+    setEditingScreenshotCaptions(captions);
+
     setShowEditReportModal(true);
+  };
+
+  // Handle screenshot deletion
+  const handleDeleteScreenshot = (screenshotId) => {
+    setDeletedScreenshotIds([...deletedScreenshotIds, screenshotId]);
+    setEditingScreenshots(editingScreenshots.filter(s => s.id !== screenshotId));
+    setIsEditFormDirty(true);
+  };
+
+  // Handle screenshot caption update
+  const handleUpdateScreenshotCaption = (screenshotId, newCaption) => {
+    setEditingScreenshotCaptions({
+      ...editingScreenshotCaptions,
+      [screenshotId]: newCaption
+    });
+    setIsEditFormDirty(true);
   };
 
   const handleUpdateReport = async (e) => {
     e.preventDefault();
-    
+
     // Convert hours to decimal format
     const decimalHours = convertTimeToHours(reportForm.hours);
-    
+
     const formData = new FormData();
     formData.append('employee_id', reportForm.employee_id);
     formData.append('date', reportForm.date);
     formData.append('hours', decimalHours);
     formData.append('project', reportForm.project);
     formData.append('description', reportForm.description);
-    
+
     // Append new screenshots if any
     reportForm.screenshots.forEach(file => {
       formData.append('screenshots', file);
     });
-    
+
     // Send captions for new screenshots
     const captions = screenshotPreviews.map(p => p.caption);
     formData.append('captions', JSON.stringify(captions));
+
+    // Send deleted screenshot IDs
+    formData.append('deleted_screenshot_ids', JSON.stringify(deletedScreenshotIds));
+
+    // Send updated captions for existing screenshots
+    formData.append('updated_captions', JSON.stringify(editingScreenshotCaptions));
 
     try {
       await axios.put(`${API_URL}/reports/${editingReport.id}`, formData, {
@@ -667,16 +713,6 @@ function App() {
     }
   };
 
-  const handleExportCSV = () => {
-    const params = new URLSearchParams();
-    if (filters.employee_id) params.append('employee_id', filters.employee_id);
-    if (filters.start_date) params.append('start_date', filters.start_date);
-    if (filters.end_date) params.append('end_date', filters.end_date);
-    if (filters.project) params.append('project', filters.project);
-    
-    window.open(`${API_URL}/reports/export/csv?${params}`, '_blank');
-  };
-
   const clearFilters = () => {
     setFilters({ employee_id: '', start_date: '', end_date: '', project: '' });
   };
@@ -693,17 +729,27 @@ function App() {
       const params = new URLSearchParams();
       if (analyticsFilters.start_date) params.append('start_date', analyticsFilters.start_date);
       if (analyticsFilters.end_date) params.append('end_date', analyticsFilters.end_date);
-      
+
       const response = await axios.get(`${API_URL}/reports?${params}`);
       const allReports = response.data;
-      
+
       // Calculate totals for selected employees
       const employeeTotals = analyticsFilters.selected_employees.map(empId => {
         const employee = employees.find(e => e.id === parseInt(empId));
-        const employeeReports = allReports.filter(r => r.employee_id === parseInt(empId));
+
+        // Filter reports by employee
+        let employeeReports = allReports.filter(r => r.employee_id === parseInt(empId));
+
+        // If projects are also selected, filter by those projects
+        if (analyticsFilters.selected_projects.length > 0) {
+          employeeReports = employeeReports.filter(r =>
+            analyticsFilters.selected_projects.includes(r.project)
+          );
+        }
+
         const totalHours = employeeReports.reduce((sum, r) => sum + parseFloat(r.hours || 0), 0);
         const reportCount = employeeReports.length;
-        
+
         return {
           employee_id: empId,
           employee_name: employee?.name || 'Unknown',
@@ -714,16 +760,24 @@ function App() {
           reports: employeeReports
         };
       });
-      
+
       setAnalyticsData(employeeTotals);
-      
+
       // Calculate totals for selected projects
       const projectTotals = analyticsFilters.selected_projects.map(proj => {
-        const projectReports = allReports.filter(r => r.project === proj);
+        let projectReports = allReports.filter(r => r.project === proj);
+
+        // If employees are also selected, filter by those employees
+        if (analyticsFilters.selected_employees.length > 0) {
+          projectReports = projectReports.filter(r =>
+            analyticsFilters.selected_employees.includes(r.employee_id.toString())
+          );
+        }
+
         const totalHours = projectReports.reduce((sum, r) => sum + parseFloat(r.hours || 0), 0);
         const reportCount = projectReports.length;
         const uniqueEmployees = [...new Set(projectReports.map(r => r.employee_id))].length;
-        
+
         return {
           project_name: proj,
           total_hours: totalHours,
@@ -732,7 +786,7 @@ function App() {
           reports: projectReports
         };
       });
-      
+
       setProjectAnalytics(projectTotals);
     } catch (error) {
       console.error('Error fetching analytics:', error);
@@ -767,21 +821,23 @@ function App() {
     setAnalyticsFilters({...analyticsFilters, selected_projects: currentSelected});
   };
 
-  const selectAllEmployees = () => {
-    const allIds = employees.map(e => e.id.toString());
-    setAnalyticsFilters({...analyticsFilters, selected_employees: allIds});
+  const toggleSelectAllEmployees = () => {
+    // If all are selected, clear selection; otherwise select all
+    if (analyticsFilters.selected_employees.length === employees.length) {
+      setAnalyticsFilters({...analyticsFilters, selected_employees: []});
+    } else {
+      const allIds = employees.map(e => e.id.toString());
+      setAnalyticsFilters({...analyticsFilters, selected_employees: allIds});
+    }
   };
 
-  const clearEmployeeSelection = () => {
-    setAnalyticsFilters({...analyticsFilters, selected_employees: []});
-  };
-
-  const selectAllProjects = () => {
-    setAnalyticsFilters({...analyticsFilters, selected_projects: [...projects]});
-  };
-
-  const clearProjectSelection = () => {
-    setAnalyticsFilters({...analyticsFilters, selected_projects: []});
+  const toggleSelectAllProjects = () => {
+    // If all are selected, clear selection; otherwise select all
+    if (analyticsFilters.selected_projects.length === projects.length) {
+      setAnalyticsFilters({...analyticsFilters, selected_projects: []});
+    } else {
+      setAnalyticsFilters({...analyticsFilters, selected_projects: [...projects]});
+    }
   };
 
   // Helper function to convert time format to decimal hours
@@ -2178,10 +2234,6 @@ function App() {
                   <X size={18} />
                   Clear Filters
                 </button>
-                <button className="btn btn-secondary" onClick={handleExportCSV}>
-                  <Download size={18} />
-                  Export CSV
-                </button>
               </div>
             </div>
 
@@ -2677,21 +2729,14 @@ function App() {
           <>
             <div className="section-header">
               <h2 className="section-title">Hours Analytics</h2>
-              <button className="btn btn-primary" onClick={fetchAnalytics}>
-                <TrendingUp size={18} />
-                Calculate Hours
-              </button>
             </div>
 
             <div className="filters">
               <div className="filter-group" style={{ marginBottom: '1rem' }}>
                 <label className="filter-label">Select Employees</label>
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <button className="btn btn-secondary" onClick={selectAllEmployees}>
-                    Select All
-                  </button>
-                  <button className="btn btn-secondary" onClick={clearEmployeeSelection}>
-                    Clear Selection
+                  <button className="btn btn-secondary" onClick={toggleSelectAllEmployees}>
+                    {analyticsFilters.selected_employees.length === employees.length ? 'Clear Selection' : 'Select All'}
                   </button>
                 </div>
                 <div style={{ 
@@ -2742,11 +2787,8 @@ function App() {
               <div className="filter-group" style={{ marginBottom: '1rem' }}>
                 <label className="filter-label">Select Projects/Apps</label>
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <button className="btn btn-secondary" onClick={selectAllProjects}>
-                    Select All Projects
-                  </button>
-                  <button className="btn btn-secondary" onClick={clearProjectSelection}>
-                    Clear Projects
+                  <button className="btn btn-secondary" onClick={toggleSelectAllProjects}>
+                    {analyticsFilters.selected_projects.length === projects.length ? 'Clear Selection' : 'Select All Projects'}
                   </button>
                 </div>
                 <div style={{ 
@@ -2839,7 +2881,7 @@ function App() {
             ) : (analyticsData.length === 0 && projectAnalytics.length === 0) ? (
               <div className="empty-state">
                 <Clock size={64} className="empty-icon" />
-                <p>Select employees or projects and click "Calculate Hours" to see analytics</p>
+                <p>Select employees or projects to see analytics (hours calculated automatically)</p>
               </div>
             ) : (
               <>
@@ -3405,42 +3447,53 @@ function App() {
               </div>
 
               {/* Existing Screenshots */}
-              {editingReport.screenshots && editingReport.screenshots.length > 0 && (
+              {editingScreenshots.length > 0 && (
                 <div className="form-group">
-                  <label className="form-label">Existing Screenshots ({editingReport.screenshots.length})</label>
-                  <div className="screenshots-grid">
-                    {editingReport.screenshots.map(screenshot => (
-                      <div key={screenshot.id} style={{ position: 'relative' }}>
-                        <img 
+                  <label className="form-label">Existing Screenshots ({editingScreenshots.length})</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {editingScreenshots.map(screenshot => (
+                      <div key={screenshot.id} style={{
+                        display: 'flex',
+                        gap: '1rem',
+                        background: 'rgba(15, 20, 40, 0.5)',
+                        padding: '1rem',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(255, 255, 255, 0.1)'
+                      }}>
+                        <img
                           src={`${API_URL.replace('/api', '')}/uploads/${screenshot.filepath}`}
                           alt={screenshot.filename}
                           style={{
-                            width: '100%',
-                            height: '100px',
+                            width: '120px',
+                            height: '90px',
                             objectFit: 'cover',
-                            borderRadius: '10px',
-                            border: '2px solid rgba(255, 255, 255, 0.1)'
+                            borderRadius: '8px',
+                            border: '2px solid rgba(255, 255, 255, 0.1)',
+                            flexShrink: 0
                           }}
                         />
-                        {screenshot.caption && (
-                          <div style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            background: 'rgba(0, 0, 0, 0.8)',
-                            color: '#fff',
-                            fontSize: '0.75rem',
-                            padding: '0.25rem 0.5rem',
-                            borderBottomLeftRadius: '10px',
-                            borderBottomRightRadius: '10px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {screenshot.caption}
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                            {screenshot.filename}
                           </div>
-                        )}
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={editingScreenshotCaptions[screenshot.id] || ''}
+                            onChange={(e) => handleUpdateScreenshotCaption(screenshot.id, e.target.value)}
+                            placeholder="Add a caption..."
+                            style={{ fontSize: '0.9rem' }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          onClick={() => handleDeleteScreenshot(screenshot.id)}
+                          title="Delete screenshot"
+                          style={{ alignSelf: 'flex-start' }}
+                        >
+                          <Trash2 size={18} />
+                        </button>
                       </div>
                     ))}
                   </div>
