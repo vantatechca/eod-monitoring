@@ -12,6 +12,14 @@ const API_URL = process.env.NODE_ENV === 'production'
   ? '/api'  // Relative path for production (same server)
   : (process.env.REACT_APP_API_URL || 'http://localhost:5000/api');
 
+// Helper to get base URL for static files (images)
+const getBaseURL = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return ''; // In production, use relative paths
+  }
+  return 'http://localhost:5000'; // In development, use full URL
+};
+
 // Utility function to format dates nicely
 const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
@@ -2427,8 +2435,8 @@ function App() {
                         <div className="screenshots-grid">
                           {report.screenshots.map((screenshot, idx) => (
                             <div key={screenshot.id} style={{ position: 'relative' }}>
-                              <img 
-                                src={`${API_URL.replace('/api', '')}/uploads/${screenshot.filepath}`}
+                              <img
+                                src={`${getBaseURL()}/uploads/${screenshot.filepath}`}
                                 alt={screenshot.filename}
                                 className="screenshot-thumb"
                                 onClick={() => openGallery(report.screenshots, idx)}
@@ -3461,7 +3469,7 @@ function App() {
                         border: '1px solid rgba(255, 255, 255, 0.1)'
                       }}>
                         <img
-                          src={`${API_URL.replace('/api', '')}/uploads/${screenshot.filepath}`}
+                          src={`${getBaseURL()}/uploads/${screenshot.filepath}`}
                           alt={screenshot.filename}
                           style={{
                             width: '120px',
@@ -3651,8 +3659,8 @@ function App() {
                   <div className="screenshots-grid" style={{ marginTop: '0.75rem' }}>
                     {selectedReport.screenshots.map((screenshot, idx) => (
                       <div key={screenshot.id} style={{ position: 'relative' }}>
-                        <img 
-                          src={`${API_URL.replace('/api', '')}/uploads/${screenshot.filepath}`}
+                        <img
+                          src={`${getBaseURL()}/uploads/${screenshot.filepath}`}
                           alt={screenshot.filename}
                           className="screenshot-thumb"
                           onClick={() => openGallery(selectedReport.screenshots, idx)}
@@ -4130,8 +4138,8 @@ function App() {
             )}
 
             {/* Image */}
-            <img 
-              src={`${API_URL.replace('/api', '')}/uploads/${galleryImages[currentImageIndex].filepath}`}
+            <img
+              src={`${getBaseURL()}/uploads/${galleryImages[currentImageIndex].filepath}`}
               alt={galleryImages[currentImageIndex].filename}
               style={{
                 maxWidth: '100%',
