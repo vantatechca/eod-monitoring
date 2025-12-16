@@ -12,6 +12,9 @@ const { pool, initializeDatabase } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy - required for Render.com and other reverse proxies
+app.set('trust proxy', 1);
+
 // CORS Configuration
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' && process.env.ALLOWED_ORIGINS
@@ -27,11 +30,14 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for static files (images)
+    return req.path.startsWith('/uploads');
+  }
 });
 
 // Middleware
 app.use(cors(corsOptions));
-app.use(limiter);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -41,8 +47,11 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Serve static files (uploaded images)
+// Serve static files (uploaded images) - BEFORE rate limiter
 app.use('/uploads', express.static(uploadsDir));
+
+// Apply rate limiting to API routes only
+app.use('/api', limiter);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -311,7 +320,7 @@ app.post('/api/reports', upload.array('screenshots', 10), async (req, res) => {
 
 // Update report
 app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) => {
-  const { employee_id, date, hours, project, description, captions } = req.body;
+  const { employee_id, date, hours, project, description, captions, deleted_screenshot_ids, updated_captions } = req.body;
 
   const client = await pool.connect();
 
@@ -326,6 +335,56 @@ app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) =>
     if (result.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Handle deleted screenshots
+    if (deleted_screenshot_ids) {
+      let deletedIds = [];
+      try {
+        deletedIds = JSON.parse(deleted_screenshot_ids);
+      } catch (e) {
+        deletedIds = [];
+      }
+
+      if (deletedIds.length > 0) {
+        // Get screenshot filepaths before deleting
+        const placeholders = deletedIds.map((_, i) => `$${i + 1}`).join(',');
+        const screenshotsToDelete = await client.query(
+          `SELECT filepath FROM screenshots WHERE id IN (${placeholders})`,
+          deletedIds
+        );
+
+        // Delete screenshot files from disk
+        screenshotsToDelete.rows.forEach(screenshot => {
+          const filePath = path.join(uploadsDir, screenshot.filepath);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        });
+
+        // Delete from database
+        await client.query(
+          `DELETE FROM screenshots WHERE id IN (${placeholders})`,
+          deletedIds
+        );
+      }
+    }
+
+    // Handle updated captions for existing screenshots
+    if (updated_captions) {
+      let captionsObj = {};
+      try {
+        captionsObj = JSON.parse(updated_captions);
+      } catch (e) {
+        captionsObj = {};
+      }
+
+      for (const [screenshotId, caption] of Object.entries(captionsObj)) {
+        await client.query(
+          'UPDATE screenshots SET caption = $1 WHERE id = $2',
+          [caption, screenshotId]
+        );
+      }
     }
 
     // Insert new screenshots if any
