@@ -13,11 +13,14 @@ const API_URL = process.env.NODE_ENV === 'production'
   : (process.env.REACT_APP_API_URL || 'http://localhost:5000/api');
 
 // Helper to get base URL for static files (images)
-const getBaseURL = () => {
-  if (process.env.NODE_ENV === 'production') {
-    return ''; // In production, use relative paths
+const getImageURL = (filepath) => {
+  // If filepath is already a full URL (Cloudinary), return it as-is
+  if (filepath && (filepath.startsWith('http://') || filepath.startsWith('https://'))) {
+    return filepath;
   }
-  return 'http://localhost:5000'; // In development, use full URL
+  // Otherwise, construct local URL (for backwards compatibility with old local files)
+  const baseURL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000';
+  return `${baseURL}/uploads/${filepath}`;
 };
 
 // Utility function to format dates nicely
@@ -2436,7 +2439,7 @@ function App() {
                           {report.screenshots.map((screenshot, idx) => (
                             <div key={screenshot.id} style={{ position: 'relative' }}>
                               <img
-                                src={`${getBaseURL()}/uploads/${screenshot.filepath}`}
+                                src={getImageURL(screenshot.filepath)}
                                 alt={screenshot.filename}
                                 className="screenshot-thumb"
                                 onClick={() => openGallery(report.screenshots, idx)}
@@ -3469,7 +3472,7 @@ function App() {
                         border: '1px solid rgba(255, 255, 255, 0.1)'
                       }}>
                         <img
-                          src={`${getBaseURL()}/uploads/${screenshot.filepath}`}
+                          src={getImageURL(screenshot.filepath)}
                           alt={screenshot.filename}
                           style={{
                             width: '120px',
@@ -3660,7 +3663,7 @@ function App() {
                     {selectedReport.screenshots.map((screenshot, idx) => (
                       <div key={screenshot.id} style={{ position: 'relative' }}>
                         <img
-                          src={`${getBaseURL()}/uploads/${screenshot.filepath}`}
+                          src={getImageURL(screenshot.filepath)}
                           alt={screenshot.filename}
                           className="screenshot-thumb"
                           onClick={() => openGallery(selectedReport.screenshots, idx)}
@@ -4139,7 +4142,7 @@ function App() {
 
             {/* Image */}
             <img
-              src={`${getBaseURL()}/uploads/${galleryImages[currentImageIndex].filepath}`}
+              src={getImageURL(galleryImages[currentImageIndex].filepath)}
               alt={galleryImages[currentImageIndex].filename}
               style={{
                 maxWidth: '100%',

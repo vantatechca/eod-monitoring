@@ -20,8 +20,12 @@ services:
           property: connectionString
       - key: ALLOWED_ORIGINS
         sync: false
-      - key: UPLOADS_DIR
-        value: /opt/render/project/src/server/uploads
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
 
 databases:
   - name: eod-monitoring-db
