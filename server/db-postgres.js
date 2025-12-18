@@ -14,13 +14,14 @@ const initDB = async () => {
       CREATE TABLE IF NOT EXISTS employees (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
         role VARCHAR(255) NOT NULL
       )
     `);
 
-    // Create reports table
+    // Create eod_reports table
     await client.query(`
-      CREATE TABLE IF NOT EXISTS reports (
+      CREATE TABLE IF NOT EXISTS eod_reports (
         id SERIAL PRIMARY KEY,
         employee_id INTEGER NOT NULL,
         date DATE NOT NULL,
@@ -37,10 +38,11 @@ const initDB = async () => {
       CREATE TABLE IF NOT EXISTS screenshots (
         id SERIAL PRIMARY KEY,
         report_id INTEGER NOT NULL,
-        filepath VARCHAR(255) NOT NULL,
+        filepath VARCHAR(500) NOT NULL,
         filename VARCHAR(255) NOT NULL,
         caption TEXT,
-        FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (report_id) REFERENCES eod_reports(id) ON DELETE CASCADE
       )
     `);
 

@@ -9,7 +9,7 @@ const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 require('dotenv').config();
 
-const { pool, initializeDatabase } = require('./db');
+const { pool, initDB } = require('./db-postgres');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -20,6 +20,9 @@ cloudinary.config({
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Uploads directory (for backwards compatibility with any remaining local files)
+const uploadsDir = path.join(__dirname, 'uploads');
 
 // Trust proxy - required for Render.com and other reverse proxies
 app.set('trust proxy', 1);
@@ -71,7 +74,7 @@ const upload = multer({
 console.log('☁️  Cloudinary configured for image uploads');
 
 // Initialize Database
-initializeDatabase().catch(err => {
+initDB().catch(err => {
   console.error('Failed to initialize database:', err);
   process.exit(1);
 });
