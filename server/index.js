@@ -353,22 +353,27 @@ app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) =>
           deletedIds
         );
 
-        // Delete screenshot files from Cloudinary
-        screenshotsToDelete.rows.forEach(async (screenshot) => {
+        // Delete screenshot files from Cloudinary (only if it's a Cloudinary URL)
+        for (const screenshot of screenshotsToDelete.rows) {
           try {
-            // Extract public_id from Cloudinary URL
-            // URL format: https://res.cloudinary.com/cloud_name/image/upload/v123456/eod-monitoring/filename.jpg
-            const urlParts = screenshot.filepath.split('/');
-            const filenameWithExt = urlParts[urlParts.length - 1];
-            const filename = filenameWithExt.split('.')[0];
-            const public_id = `eod-monitoring/${filename}`;
+            // Only delete from Cloudinary if it's a Cloudinary URL
+            if (screenshot.filepath.startsWith('http://') || screenshot.filepath.startsWith('https://')) {
+              // Extract public_id from Cloudinary URL
+              // URL format: https://res.cloudinary.com/cloud_name/image/upload/v123456/eod-monitoring/filename.jpg
+              const urlParts = screenshot.filepath.split('/');
+              const filenameWithExt = urlParts[urlParts.length - 1];
+              const filename = filenameWithExt.split('.')[0];
+              const public_id = `eod-monitoring/${filename}`;
 
-            await cloudinary.uploader.destroy(public_id);
-            console.log(`🗑️  Deleted from Cloudinary: ${public_id}`);
+              await cloudinary.uploader.destroy(public_id);
+              console.log(`🗑️  Deleted from Cloudinary: ${public_id}`);
+            } else {
+              console.log(`⏭️  Skipping local file (not on Cloudinary): ${screenshot.filepath}`);
+            }
           } catch (err) {
-            console.error(`Error deleting from Cloudinary: ${screenshot.filepath}`, err);
+            console.error(`❌ Error deleting from Cloudinary: ${screenshot.filepath}`, err.message);
           }
-        });
+        }
 
         // Delete from database
         await client.query(
@@ -424,6 +429,8 @@ app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) =>
     });
   } catch (err) {
     await client.query('ROLLBACK');
+    console.error('❌ Error updating report:', err.message);
+    console.error('Stack trace:', err.stack);
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
