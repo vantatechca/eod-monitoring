@@ -9,7 +9,7 @@ const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 require('dotenv').config();
 
-const { pool, initializeDatabase } = require('./db');
+const { pool, initDB } = require('./db-postgres');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -20,6 +20,9 @@ cloudinary.config({
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Uploads directory (for backwards compatibility with any remaining local files)
+const uploadsDir = path.join(__dirname, 'uploads');
 
 // Trust proxy - required for Render.com and other reverse proxies
 app.set('trust proxy', 1);
@@ -71,7 +74,7 @@ const upload = multer({
 console.log('☁️  Cloudinary configured for image uploads');
 
 // Initialize Database
-initializeDatabase().catch(err => {
+initDB().catch(err => {
   console.error('Failed to initialize database:', err);
   process.exit(1);
 });
@@ -450,13 +453,32 @@ app.delete('/api/reports/:id', async (req, res) => {
       [req.params.id]
     );
 
-    // Delete screenshot files
-    screenshotsResult.rows.forEach(screenshot => {
-      const filePath = path.join(uploadsDir, screenshot.filepath);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+    // Delete screenshot files from Cloudinary or local storage
+    for (const screenshot of screenshotsResult.rows) {
+      try {
+        // Check if it's a Cloudinary URL
+        if (screenshot.filepath && (screenshot.filepath.startsWith('http://') || screenshot.filepath.startsWith('https://'))) {
+          // Delete from Cloudinary
+          const urlParts = screenshot.filepath.split('/');
+          const filenameWithExt = urlParts[urlParts.length - 1];
+          const filename = filenameWithExt.split('.')[0];
+          const public_id = `eod-monitoring/${filename}`;
+
+          await cloudinary.uploader.destroy(public_id);
+          console.log(`🗑️  Deleted from Cloudinary: ${public_id}`);
+        } else {
+          // Delete local file (for backwards compatibility)
+          const filePath = path.join(uploadsDir, screenshot.filepath);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`🗑️  Deleted local file: ${screenshot.filepath}`);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error deleting screenshot: ${screenshot.filepath}`, err.message);
+        // Continue deleting other files even if one fails
       }
-    });
+    }
 
     // Delete report (screenshots will be deleted via CASCADE)
     const result = await client.query('DELETE FROM eod_reports WHERE id = $1', [req.params.id]);
@@ -504,6 +526,54 @@ app.get('/api/stats', async (req, res) => {
       reportsToday: parseInt(todayResult.rows[0].count)
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ GALLERY ROUTES ============
+
+// Get all screenshots with filters for gallery view
+app.get('/api/gallery', async (req, res) => {
+  const { employee_id, start_date, end_date } = req.query;
+
+  let query = `
+    SELECT
+      s.*,
+      e.name as employee_name,
+      e.email as employee_email,
+      r.date as report_date,
+      r.project
+    FROM screenshots s
+    JOIN eod_reports r ON s.report_id = r.id
+    JOIN employees e ON r.employee_id = e.id
+    WHERE 1=1
+  `;
+
+  const params = [];
+  let paramCount = 1;
+
+  if (employee_id) {
+    query += ` AND r.employee_id = $${paramCount++}`;
+    params.push(employee_id);
+  }
+
+  if (start_date) {
+    query += ` AND r.date >= $${paramCount++}`;
+    params.push(start_date);
+  }
+
+  if (end_date) {
+    query += ` AND r.date <= $${paramCount++}`;
+    params.push(end_date);
+  }
+
+  query += ' ORDER BY s.uploaded_at DESC, r.date DESC';
+
+  try {
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Gallery fetch error:', err);
     res.status(500).json({ error: err.message });
   }
 });
