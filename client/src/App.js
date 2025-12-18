@@ -108,6 +108,13 @@ function App() {
   const [isEditFormDirty, setIsEditFormDirty] = useState(false);
   const [isQuickFormDirty, setIsQuickFormDirty] = useState(false);
 
+  // Admin Mode for bypassing 3-day edit restriction
+  const [adminMode, setAdminMode] = useState(false);
+  const [showAdminPasswordModal, setShowAdminPasswordModal] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordError, setAdminPasswordError] = useState('');
+  const [reportToEditAfterAuth, setReportToEditAfterAuth] = useState(null);
+
   // Screenshot Management
   const [editingScreenshots, setEditingScreenshots] = useState([]);
   const [deletedScreenshotIds, setDeletedScreenshotIds] = useState([]);
@@ -623,10 +630,40 @@ function App() {
   };
 
   const isReportEditable = (report) => {
+    // Admin mode bypasses the 3-day restriction
+    if (adminMode) return true;
+
     const reportDate = new Date(report.created_at);
     const now = new Date();
     const daysDifference = (now - reportDate) / (1000 * 60 * 60 * 24);
     return daysDifference <= 3;
+  };
+
+  const handleAdminPasswordSubmit = (e) => {
+    e.preventDefault();
+
+    if (adminPassword === 'eod_admin') {
+      setAdminMode(true);
+      setShowAdminPasswordModal(false);
+      setAdminPassword('');
+      setAdminPasswordError('');
+
+      // If there's a report waiting to be edited, edit it now
+      if (reportToEditAfterAuth) {
+        handleEditReport(reportToEditAfterAuth);
+        setReportToEditAfterAuth(null);
+      }
+    } else {
+      setAdminPasswordError('Incorrect password');
+      setAdminPassword('');
+    }
+  };
+
+  const handleCancelAdminPassword = () => {
+    setShowAdminPasswordModal(false);
+    setAdminPassword('');
+    setAdminPasswordError('');
+    setReportToEditAfterAuth(null);
   };
 
   const handleEditReport = (report) => {
@@ -1978,6 +2015,38 @@ function App() {
               Employees
             </button>
           </nav>
+          {adminMode && (
+            <div style={{
+              padding: '0.5rem 1rem',
+              background: 'rgba(251, 191, 36, 0.2)',
+              border: '1px solid rgba(251, 191, 36, 0.5)',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.85rem',
+              color: '#fbbf24',
+              fontWeight: '600'
+            }}>
+              🔓 Admin Mode Active
+              <button
+                onClick={() => setAdminMode(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#fbbf24',
+                  cursor: 'pointer',
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  fontSize: '0.75rem',
+                  textDecoration: 'underline'
+                }}
+                title="Exit admin mode"
+              >
+                Exit
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -2198,12 +2267,24 @@ function App() {
                         >
                           <Eye size={18} />
                         </button>
-                        {isReportEditable(report) && (
-                          <button 
+                        {isReportEditable(report) ? (
+                          <button
                             className="icon-btn"
                             onClick={() => handleEditReport(report)}
                             title="Edit report"
                             style={{ color: '#67e8f9' }}
+                          >
+                            <Edit size={18} />
+                          </button>
+                        ) : (
+                          <button
+                            className="icon-btn"
+                            onClick={() => {
+                              setReportToEditAfterAuth(report);
+                              setShowAdminPasswordModal(true);
+                            }}
+                            title="Report locked (older than 3 days) - Click to enter admin password"
+                            style={{ opacity: 0.5, color: '#f59e0b' }}
                           >
                             <Edit size={18} />
                           </button>
@@ -2445,7 +2526,7 @@ function App() {
                             <Eye size={18} />
                           </button>
                           {isReportEditable(report) ? (
-                            <button 
+                            <button
                               className="icon-btn"
                               onClick={() => handleEditReport(report)}
                               title="Edit report (within 3 days)"
@@ -2454,11 +2535,14 @@ function App() {
                               <Edit size={18} />
                             </button>
                           ) : (
-                            <button 
+                            <button
                               className="icon-btn"
-                              disabled
-                              title="Report locked (older than 3 days)"
-                              style={{ opacity: 0.3, cursor: 'not-allowed' }}
+                              onClick={() => {
+                                setReportToEditAfterAuth(report);
+                                setShowAdminPasswordModal(true);
+                              }}
+                              title="Report locked (older than 3 days) - Click to enter admin password"
+                              style={{ opacity: 0.5, color: '#f59e0b' }}
                             >
                               <Edit size={18} />
                             </button>
@@ -2761,7 +2845,7 @@ function App() {
                                 <Eye size={18} />
                               </button>
                               {isReportEditable(report) ? (
-                                <button 
+                                <button
                                   className="icon-btn"
                                   onClick={() => handleEditReport(report)}
                                   title="Edit report"
@@ -2770,11 +2854,14 @@ function App() {
                                   <Edit size={18} />
                                 </button>
                               ) : (
-                                <button 
+                                <button
                                   className="icon-btn"
-                                  disabled
-                                  title="Report locked"
-                                  style={{ opacity: 0.3, cursor: 'not-allowed' }}
+                                  onClick={() => {
+                                    setReportToEditAfterAuth(report);
+                                    setShowAdminPasswordModal(true);
+                                  }}
+                                  title="Report locked (older than 3 days) - Click to enter admin password"
+                                  style={{ opacity: 0.5, color: '#f59e0b' }}
                                 >
                                   <Edit size={18} />
                                 </button>
@@ -3197,6 +3284,68 @@ function App() {
           </>
         )}
       </div>
+
+      {/* Admin Password Modal */}
+      {showAdminPasswordModal && (
+        <div className="modal-overlay" onClick={handleCancelAdminPassword}>
+          <div className="modal" style={{ maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">🔐 Admin Access Required</h3>
+              <button className="close-btn" onClick={handleCancelAdminPassword}>
+                <X size={20} />
+              </button>
+            </div>
+            <form className="form" onSubmit={handleAdminPasswordSubmit}>
+              <div style={{
+                marginBottom: '1.5rem',
+                padding: '1rem',
+                background: 'rgba(251, 191, 36, 0.1)',
+                border: '1px solid rgba(251, 191, 36, 0.3)',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                color: '#fbbf24'
+              }}>
+                ⚠️ This report is older than 3 days. Enter admin password to edit.
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Admin Password</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  value={adminPassword}
+                  onChange={(e) => {
+                    setAdminPassword(e.target.value);
+                    setAdminPasswordError('');
+                  }}
+                  placeholder="Enter admin password"
+                  autoFocus
+                  required
+                  style={adminPasswordError ? { borderColor: '#ef4444' } : {}}
+                />
+                {adminPasswordError && (
+                  <div style={{
+                    marginTop: '0.5rem',
+                    fontSize: '0.85rem',
+                    color: '#ef4444'
+                  }}>
+                    ❌ {adminPasswordError}
+                  </div>
+                )}
+              </div>
+
+              <div className="form-actions">
+                <button type="button" className="btn btn-secondary" onClick={handleCancelAdminPassword}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Unlock & Edit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add Employee Modal */}
       {showEmployeeModal && (
