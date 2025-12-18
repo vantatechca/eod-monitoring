@@ -2928,353 +2928,572 @@ function App() {
         {activeTab === 'analytics' && (
           <>
             <div className="section-header">
-              <h2 className="section-title">Hours Analytics</h2>
+              <h2 className="section-title">Analytics Dashboard</h2>
             </div>
 
-            <div className="filters">
-              <div className="filter-group" style={{ marginBottom: '1rem' }}>
-                <label className="filter-label">Select Employees</label>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <button className="btn btn-secondary" onClick={toggleSelectAllEmployees}>
-                    {analyticsFilters.selected_employees.length === employees.length ? 'Clear Selection' : 'Select All'}
+            {/* Compact Filters Bar */}
+            <div style={{
+              background: 'rgba(15, 20, 40, 0.95)',
+              padding: '1.5rem',
+              borderRadius: '16px',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              marginBottom: '2rem'
+            }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '1rem',
+                marginBottom: '1rem'
+              }}>
+                {/* Employee Filter */}
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: '#a5b4fc',
+                    marginBottom: '0.5rem'
+                  }}>
+                    Employees
+                  </label>
+                  <select
+                    multiple
+                    value={analyticsFilters.selected_employees}
+                    onChange={(e) => {
+                      const options = Array.from(e.target.selectedOptions, option => option.value);
+                      setAnalyticsFilters({...analyticsFilters, selected_employees: options});
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      background: 'rgba(15, 20, 40, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '10px',
+                      color: '#fff',
+                      fontSize: '0.95rem',
+                      minHeight: '120px'
+                    }}
+                  >
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id.toString()}>
+                        {emp.name} ({emp.role})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={toggleSelectAllEmployees}
+                    style={{
+                      marginTop: '0.5rem',
+                      width: '100%',
+                      padding: '0.5rem',
+                      background: 'rgba(102, 126, 234, 0.2)',
+                      border: '1px solid rgba(102, 126, 234, 0.3)',
+                      borderRadius: '8px',
+                      color: '#c7d2fe',
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    {analyticsFilters.selected_employees.length === employees.length ? 'Clear All' : 'Select All'}
                   </button>
                 </div>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: '0.75rem'
-                }}>
-                  {employees.map(emp => (
-                    <label 
-                      key={emp.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        padding: '0.75rem',
-                        background: analyticsFilters.selected_employees.includes(emp.id.toString()) 
-                          ? 'rgba(102, 126, 234, 0.2)' 
-                          : 'rgba(15, 20, 40, 0.8)',
-                        border: '1px solid',
-                        borderColor: analyticsFilters.selected_employees.includes(emp.id.toString())
-                          ? '#667eea'
-                          : 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        transition: 'all 0.3s ease'
-                      }}
-                    >
-                      <input 
-                        type="checkbox"
-                        checked={analyticsFilters.selected_employees.includes(emp.id.toString())}
-                        onChange={() => handleEmployeeToggle(emp.id)}
-                        style={{ 
-                          width: '18px', 
-                          height: '18px',
-                          cursor: 'pointer',
-                          accentColor: '#667eea'
-                        }}
-                      />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ color: '#fff', fontWeight: 600 }}>{emp.name}</div>
-                        <div style={{ fontSize: '0.85rem', color: '#a5b4fc' }}>{emp.role}</div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
 
-              <div className="filter-group" style={{ marginBottom: '1rem' }}>
-                <label className="filter-label">Select Projects/Apps</label>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <button className="btn btn-secondary" onClick={toggleSelectAllProjects}>
-                    {analyticsFilters.selected_projects.length === projects.length ? 'Clear Selection' : 'Select All Projects'}
+                {/* Project Filter */}
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: '#a5b4fc',
+                    marginBottom: '0.5rem'
+                  }}>
+                    Projects/Apps
+                  </label>
+                  <select
+                    multiple
+                    value={analyticsFilters.selected_projects}
+                    onChange={(e) => {
+                      const options = Array.from(e.target.selectedOptions, option => option.value);
+                      setAnalyticsFilters({...analyticsFilters, selected_projects: options});
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      background: 'rgba(15, 20, 40, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '10px',
+                      color: '#fff',
+                      fontSize: '0.95rem',
+                      minHeight: '120px'
+                    }}
+                  >
+                    {projects.map(proj => (
+                      <option key={proj} value={proj}>
+                        📱 {proj}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={toggleSelectAllProjects}
+                    style={{
+                      marginTop: '0.5rem',
+                      width: '100%',
+                      padding: '0.5rem',
+                      background: 'rgba(102, 126, 234, 0.2)',
+                      border: '1px solid rgba(102, 126, 234, 0.3)',
+                      borderRadius: '8px',
+                      color: '#c7d2fe',
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    {analyticsFilters.selected_projects.length === projects.length ? 'Clear All' : 'Select All'}
                   </button>
                 </div>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: '0.75rem'
-                }}>
-                  {projects.map(proj => (
-                    <label 
-                      key={proj}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        padding: '0.75rem',
-                        background: analyticsFilters.selected_projects.includes(proj) 
-                          ? 'rgba(102, 126, 234, 0.2)' 
-                          : 'rgba(15, 20, 40, 0.8)',
-                        border: '1px solid',
-                        borderColor: analyticsFilters.selected_projects.includes(proj)
-                          ? '#667eea'
-                          : 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        transition: 'all 0.3s ease'
-                      }}
-                    >
-                      <input 
-                        type="checkbox"
-                        checked={analyticsFilters.selected_projects.includes(proj)}
-                        onChange={() => handleProjectToggle(proj)}
-                        style={{ 
-                          width: '18px', 
-                          height: '18px',
-                          cursor: 'pointer',
-                          accentColor: '#667eea'
-                        }}
-                      />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ color: '#fff', fontWeight: 600 }}>📱 {proj}</div>
-                      </div>
-                    </label>
-                  ))}
-                  {projects.length === 0 && (
-                    <div style={{ color: '#a5b4fc', padding: '1rem', textAlign: 'center' }}>
-                      No projects yet. Add reports with project names to see them here.
-                    </div>
-                  )}
-                </div>
-              </div>
 
-              <div className="filters-grid">
-                <div className="filter-group">
-                  <label className="filter-label">Start Date</label>
-                  <input 
+                {/* Date Filters */}
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: '#a5b4fc',
+                    marginBottom: '0.5rem'
+                  }}>
+                    Start Date
+                  </label>
+                  <input
                     type="date"
-                    className="filter-input"
                     value={analyticsFilters.start_date}
                     onChange={(e) => setAnalyticsFilters({...analyticsFilters, start_date: e.target.value})}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      background: 'rgba(15, 20, 40, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '10px',
+                      color: '#fff',
+                      fontSize: '0.95rem'
+                    }}
                   />
                 </div>
-                
-                <div className="filter-group">
-                  <label className="filter-label">End Date</label>
-                  <input 
+
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: '#a5b4fc',
+                    marginBottom: '0.5rem'
+                  }}>
+                    End Date
+                  </label>
+                  <input
                     type="date"
-                    className="filter-input"
                     value={analyticsFilters.end_date}
                     onChange={(e) => setAnalyticsFilters({...analyticsFilters, end_date: e.target.value})}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      background: 'rgba(15, 20, 40, 0.8)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '10px',
+                      color: '#fff',
+                      fontSize: '0.95rem'
+                    }}
                   />
                 </div>
               </div>
 
-              <div style={{ 
-                marginTop: '1rem', 
-                padding: '1rem',
+              {/* Filter Summary */}
+              <div style={{
+                padding: '0.75rem 1rem',
                 background: 'rgba(102, 126, 234, 0.1)',
                 borderRadius: '10px',
-                color: '#c7d2fe'
+                fontSize: '0.9rem',
+                color: '#c7d2fe',
+                display: 'flex',
+                gap: '1rem',
+                flexWrap: 'wrap'
               }}>
-                <strong>{analyticsFilters.selected_employees.length}</strong> employee(s) selected
-                {analyticsFilters.selected_projects.length > 0 && ` • ${analyticsFilters.selected_projects.length} project(s) selected`}
-                {analyticsFilters.start_date && ` • From ${analyticsFilters.start_date}`}
-                {analyticsFilters.end_date && ` • To ${analyticsFilters.end_date}`}
+                <span><strong>{analyticsFilters.selected_employees.length}</strong> employee(s)</span>
+                {analyticsFilters.selected_projects.length > 0 && <span><strong>{analyticsFilters.selected_projects.length}</strong> project(s)</span>}
+                {analyticsFilters.start_date && <span>From <strong>{analyticsFilters.start_date}</strong></span>}
+                {analyticsFilters.end_date && <span>To <strong>{analyticsFilters.end_date}</strong></span>}
               </div>
             </div>
 
             {loading ? (
-              <div className="loading">Calculating hours...</div>
+              <div className="loading">Calculating analytics...</div>
             ) : (analyticsData.length === 0 && projectAnalytics.length === 0) ? (
               <div className="empty-state">
                 <Clock size={64} className="empty-icon" />
-                <p>Select employees or projects to see analytics (hours calculated automatically)</p>
+                <p>Select employees or projects to view analytics</p>
               </div>
             ) : (
               <>
-                <div className="section-header" style={{ marginTop: '2rem' }}>
-                  <h2 className="section-title">Hours Summary</h2>
-                  <div style={{ 
-                    fontSize: '1.5rem', 
-                    fontWeight: 700,
-                    color: '#667eea',
-                    fontFamily: 'JetBrains Mono, monospace'
+                {/* Summary Metrics */}
+                {(analyticsData.length > 0 || projectAnalytics.length > 0) && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: '1.5rem',
+                    marginBottom: '2.5rem'
                   }}>
-                    Total: {analyticsData.reduce((sum, emp) => sum + emp.total_hours, 0).toFixed(1)}h
+                    {analyticsData.length > 0 && (
+                      <>
+                        <div style={{
+                          background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)',
+                          padding: '1.5rem',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(102, 126, 234, 0.3)'
+                        }}>
+                          <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginBottom: '0.5rem', fontWeight: 600 }}>
+                            Total Hours
+                          </div>
+                          <div style={{
+                            fontSize: '2.5rem',
+                            fontWeight: 700,
+                            color: '#667eea',
+                            fontFamily: 'JetBrains Mono, monospace'
+                          }}>
+                            {analyticsData.reduce((sum, emp) => sum + emp.total_hours, 0).toFixed(1)}h
+                          </div>
+                        </div>
+
+                        <div style={{
+                          background: 'rgba(15, 20, 40, 0.8)',
+                          padding: '1.5rem',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(255, 255, 255, 0.1)'
+                        }}>
+                          <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginBottom: '0.5rem', fontWeight: 600 }}>
+                            Total Reports
+                          </div>
+                          <div style={{
+                            fontSize: '2.5rem',
+                            fontWeight: 700,
+                            color: '#fff'
+                          }}>
+                            {analyticsData.reduce((sum, emp) => sum + emp.report_count, 0)}
+                          </div>
+                        </div>
+
+                        <div style={{
+                          background: 'rgba(15, 20, 40, 0.8)',
+                          padding: '1.5rem',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(255, 255, 255, 0.1)'
+                        }}>
+                          <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginBottom: '0.5rem', fontWeight: 600 }}>
+                            Avg Hours/Report
+                          </div>
+                          <div style={{
+                            fontSize: '2.5rem',
+                            fontWeight: 700,
+                            color: '#fff'
+                          }}>
+                            {(analyticsData.reduce((sum, emp) => sum + emp.total_hours, 0) /
+                              Math.max(analyticsData.reduce((sum, emp) => sum + emp.report_count, 0), 1)).toFixed(1)}h
+                          </div>
+                        </div>
+
+                        <div style={{
+                          background: 'rgba(15, 20, 40, 0.8)',
+                          padding: '1.5rem',
+                          borderRadius: '16px',
+                          border: '1px solid rgba(255, 255, 255, 0.1)'
+                        }}>
+                          <div style={{ fontSize: '0.85rem', color: '#a5b4fc', marginBottom: '0.5rem', fontWeight: 600 }}>
+                            Active Employees
+                          </div>
+                          <div style={{
+                            fontSize: '2.5rem',
+                            fontWeight: 700,
+                            color: '#fff'
+                          }}>
+                            {analyticsData.length}
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
-                </div>
+                )}
 
-                <div className="cards-grid">
-                  {analyticsData.map(empData => (
-                    <div key={empData.employee_id} className="card">
-                      <div className="card-header">
-                        <div>
-                          <div className="card-title">{empData.employee_name}</div>
-                          <div className="card-subtitle">{empData.employee_role}</div>
-                        </div>
+                {/* Employee Analytics */}
+                {analyticsData.length > 0 && (
+                  <>
+                    <div style={{
+                      marginBottom: '1.5rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1rem'
+                    }}>
+                      <h3 style={{
+                        fontSize: '1.25rem',
+                        fontWeight: 700,
+                        color: '#fff',
+                        margin: 0
+                      }}>
+                        Employee Performance
+                      </h3>
+                      <div style={{
+                        padding: '0.35rem 0.75rem',
+                        background: 'rgba(102, 126, 234, 0.2)',
+                        borderRadius: '20px',
+                        fontSize: '0.85rem',
+                        color: '#c7d2fe'
+                      }}>
+                        {analyticsData.length} employee(s)
                       </div>
-                      
-                      <div className="report-details" style={{ marginTop: '1.5rem' }}>
-                        <div className="detail-item">
-                          <div className="detail-label">Total Hours</div>
-                          <div className="detail-value" style={{ 
-                            fontSize: '2rem',
-                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text'
-                          }}>
-                            {empData.total_hours.toFixed(2)}h
-                          </div>
-                        </div>
-                        
-                        <div className="detail-item">
-                          <div className="detail-label">Reports</div>
-                          <div className="detail-value">{empData.report_count}</div>
-                        </div>
-                        
-                        <div className="detail-item">
-                          <div className="detail-label">Avg Hours/Report</div>
-                          <div className="detail-value">
-                            {empData.report_count > 0 
-                              ? (empData.total_hours / empData.report_count).toFixed(1)
-                              : '0'}h
-                          </div>
-                        </div>
-                      </div>
-
-                      {empData.reports.length > 0 && (
-                        <div style={{ marginTop: '1.5rem' }}>
-                          <div className="detail-label" style={{ marginBottom: '0.75rem' }}>
-                            Report Breakdown
-                          </div>
-                          <div style={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            gap: '0.5rem',
-                            maxHeight: '200px',
-                            overflowY: 'auto'
-                          }}>
-                            {empData.reports.map(report => (
-                              <div 
-                                key={report.id}
-                                style={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  padding: '0.5rem 0.75rem',
-                                  background: 'rgba(15, 20, 40, 0.5)',
-                                  borderRadius: '8px',
-                                  fontSize: '0.9rem'
-                                }}
-                              >
-                                <span style={{ color: '#a5b4fc' }}>{formatDate(report.date)}</span>
-                                <span style={{ 
-                                  color: '#fff', 
-                                  fontWeight: 600,
-                                  fontFamily: 'JetBrains Mono, monospace'
-                                }}>
-                                  {parseFloat(report.hours).toFixed(2)}h
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
 
-            {/* Project Analytics Section */}
-            {projectAnalytics.length > 0 && (
-              <>
-                <div className="section-header" style={{ marginTop: '3rem' }}>
-                  <h2 className="section-title">Hours by Project/App</h2>
-                  <div style={{ 
-                    fontSize: '1.5rem', 
-                    fontWeight: 700,
-                    color: '#667eea',
-                    fontFamily: 'JetBrains Mono, monospace'
-                  }}>
-                    Total: {projectAnalytics.reduce((sum, proj) => sum + proj.total_hours, 0).toFixed(1)}h
-                  </div>
-                </div>
+                    <div style={{
+                      display: 'grid',
+                      gap: '1rem',
+                      marginBottom: '3rem'
+                    }}>
+                      {analyticsData
+                        .sort((a, b) => b.total_hours - a.total_hours)
+                        .map(empData => {
+                          const maxHours = Math.max(...analyticsData.map(e => e.total_hours));
+                          const percentage = (empData.total_hours / maxHours) * 100;
 
-                <div className="cards-grid">
-                  {projectAnalytics.map(projData => (
-                    <div key={projData.project_name} className="card">
-                      <div className="card-header">
-                        <div>
-                          <div className="card-title">📱 {projData.project_name}</div>
-                          <div className="card-subtitle">{projData.employee_count} employee(s) working</div>
-                        </div>
-                      </div>
-                      
-                      <div className="report-details" style={{ marginTop: '1.5rem' }}>
-                        <div className="detail-item">
-                          <div className="detail-label">Total Hours</div>
-                          <div className="detail-value" style={{ 
-                            fontSize: '2rem',
-                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text'
-                          }}>
-                            {projData.total_hours.toFixed(2)}h
-                          </div>
-                        </div>
-                        
-                        <div className="detail-item">
-                          <div className="detail-label">Reports</div>
-                          <div className="detail-value">{projData.report_count}</div>
-                        </div>
-                        
-                        <div className="detail-item">
-                          <div className="detail-label">Avg Hours/Report</div>
-                          <div className="detail-value">
-                            {projData.report_count > 0 
-                              ? (projData.total_hours / projData.report_count).toFixed(1)
-                              : '0'}h
-                          </div>
-                        </div>
-                      </div>
-
-                      {projData.reports.length > 0 && (
-                        <div style={{ marginTop: '1.5rem' }}>
-                          <div className="detail-label" style={{ marginBottom: '0.75rem' }}>
-                            Report Breakdown
-                          </div>
-                          <div style={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            gap: '0.5rem',
-                            maxHeight: '200px',
-                            overflowY: 'auto'
-                          }}>
-                            {projData.reports.map(report => (
-                              <div 
-                                key={report.id}
-                                style={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  padding: '0.5rem 0.75rem',
-                                  background: 'rgba(15, 20, 40, 0.5)',
-                                  borderRadius: '8px',
-                                  fontSize: '0.9rem'
-                                }}
-                              >
-                                <span style={{ color: '#a5b4fc' }}>
-                                  {formatDate(report.date)} - {report.employee_name}
-                                </span>
-                                <span style={{ 
-                                  color: '#fff', 
-                                  fontWeight: 600,
-                                  fontFamily: 'JetBrains Mono, monospace'
-                                }}>
-                                  {parseFloat(report.hours).toFixed(2)}h
-                                </span>
+                          return (
+                            <div
+                              key={empData.employee_id}
+                              style={{
+                                background: 'rgba(15, 20, 40, 0.8)',
+                                padding: '1.5rem',
+                                borderRadius: '16px',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                transition: 'all 0.3s ease'
+                              }}
+                            >
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                marginBottom: '1rem'
+                              }}>
+                                <div>
+                                  <div style={{
+                                    fontSize: '1.1rem',
+                                    fontWeight: 700,
+                                    color: '#fff',
+                                    marginBottom: '0.25rem'
+                                  }}>
+                                    {empData.employee_name}
+                                  </div>
+                                  <div style={{
+                                    fontSize: '0.9rem',
+                                    color: '#a5b4fc'
+                                  }}>
+                                    {empData.employee_role}
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{
+                                    fontSize: '1.75rem',
+                                    fontWeight: 700,
+                                    color: '#667eea',
+                                    fontFamily: 'JetBrains Mono, monospace'
+                                  }}>
+                                    {empData.total_hours.toFixed(1)}h
+                                  </div>
+                                  <div style={{
+                                    fontSize: '0.85rem',
+                                    color: '#a5b4fc'
+                                  }}>
+                                    {empData.report_count} report{empData.report_count !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+
+                              {/* Progress Bar */}
+                              <div style={{
+                                width: '100%',
+                                height: '8px',
+                                background: 'rgba(15, 20, 40, 0.8)',
+                                borderRadius: '10px',
+                                overflow: 'hidden',
+                                marginBottom: '1rem'
+                              }}>
+                                <div style={{
+                                  width: `${percentage}%`,
+                                  height: '100%',
+                                  background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                                  transition: 'width 0.5s ease'
+                                }} />
+                              </div>
+
+                              {/* Stats Row */}
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                                gap: '1rem'
+                              }}>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginBottom: '0.25rem' }}>
+                                    Avg per Report
+                                  </div>
+                                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>
+                                    {(empData.total_hours / empData.report_count).toFixed(1)}h
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginBottom: '0.25rem' }}>
+                                    Contribution
+                                  </div>
+                                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>
+                                    {percentage.toFixed(0)}%
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                     </div>
-                  ))}
-                </div>
+                  </>
+                )}
+
+                {/* Project Analytics */}
+                {projectAnalytics.length > 0 && (
+                  <>
+                    <div style={{
+                      marginBottom: '1.5rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1rem'
+                    }}>
+                      <h3 style={{
+                        fontSize: '1.25rem',
+                        fontWeight: 700,
+                        color: '#fff',
+                        margin: 0
+                      }}>
+                        Project Breakdown
+                      </h3>
+                      <div style={{
+                        padding: '0.35rem 0.75rem',
+                        background: 'rgba(102, 126, 234, 0.2)',
+                        borderRadius: '20px',
+                        fontSize: '0.85rem',
+                        color: '#c7d2fe'
+                      }}>
+                        {projectAnalytics.length} project(s)
+                      </div>
+                    </div>
+
+                    <div style={{
+                      display: 'grid',
+                      gap: '1rem'
+                    }}>
+                      {projectAnalytics
+                        .sort((a, b) => b.total_hours - a.total_hours)
+                        .map(projData => {
+                          const maxHours = Math.max(...projectAnalytics.map(p => p.total_hours));
+                          const percentage = (projData.total_hours / maxHours) * 100;
+
+                          return (
+                            <div
+                              key={projData.project_name}
+                              style={{
+                                background: 'rgba(15, 20, 40, 0.8)',
+                                padding: '1.5rem',
+                                borderRadius: '16px',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                transition: 'all 0.3s ease'
+                              }}
+                            >
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                marginBottom: '1rem'
+                              }}>
+                                <div>
+                                  <div style={{
+                                    fontSize: '1.1rem',
+                                    fontWeight: 700,
+                                    color: '#fff',
+                                    marginBottom: '0.25rem'
+                                  }}>
+                                    📱 {projData.project_name}
+                                  </div>
+                                  <div style={{
+                                    fontSize: '0.9rem',
+                                    color: '#a5b4fc'
+                                  }}>
+                                    {projData.employee_count} employee(s) working
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{
+                                    fontSize: '1.75rem',
+                                    fontWeight: 700,
+                                    color: '#667eea',
+                                    fontFamily: 'JetBrains Mono, monospace'
+                                  }}>
+                                    {projData.total_hours.toFixed(1)}h
+                                  </div>
+                                  <div style={{
+                                    fontSize: '0.85rem',
+                                    color: '#a5b4fc'
+                                  }}>
+                                    {projData.report_count} report{projData.report_count !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Progress Bar */}
+                              <div style={{
+                                width: '100%',
+                                height: '8px',
+                                background: 'rgba(15, 20, 40, 0.8)',
+                                borderRadius: '10px',
+                                overflow: 'hidden',
+                                marginBottom: '1rem'
+                              }}>
+                                <div style={{
+                                  width: `${percentage}%`,
+                                  height: '100%',
+                                  background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                                  transition: 'width 0.5s ease'
+                                }} />
+                              </div>
+
+                              {/* Stats Row */}
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                                gap: '1rem'
+                              }}>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginBottom: '0.25rem' }}>
+                                    Avg per Report
+                                  </div>
+                                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>
+                                    {(projData.total_hours / projData.report_count).toFixed(1)}h
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginBottom: '0.25rem' }}>
+                                    Share of Total
+                                  </div>
+                                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>
+                                    {percentage.toFixed(0)}%
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </>
