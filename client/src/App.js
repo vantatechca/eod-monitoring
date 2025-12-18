@@ -112,6 +112,7 @@ function App() {
   const [editingScreenshots, setEditingScreenshots] = useState([]);
   const [deletedScreenshotIds, setDeletedScreenshotIds] = useState([]);
   const [editingScreenshotCaptions, setEditingScreenshotCaptions] = useState({});
+  const [recropScreenshotId, setRecropScreenshotId] = useState(null); // Track which screenshot is being re-cropped
   
   // Filters
   const [filters, setFilters] = useState({
@@ -463,6 +464,10 @@ function App() {
       screenshots: []
     });
     setScreenshotPreviews([]);
+    setEditingScreenshots([]);
+    setDeletedScreenshotIds([]);
+    setEditingScreenshotCaptions({});
+    setRecropScreenshotId(null);
     setIsEditFormDirty(false);
     if (editFileInputRef.current) {
       editFileInputRef.current.value = '';
@@ -666,6 +671,28 @@ function App() {
     setIsEditFormDirty(true);
   };
 
+  // Handle screenshot re-crop
+  const handleRecropScreenshot = (screenshot) => {
+    // Store which screenshot we're re-cropping
+    setRecropScreenshotId(screenshot.id);
+
+    // Load the image into the crop modal
+    const imageUrl = getImageURL(screenshot.filepath);
+    setCropImageSrc(imageUrl);
+    setCropRect({ x: 50, y: 50, width: 200, height: 200 });
+    setShowCropModal(true);
+
+    // Create a temporary file object for this recrop operation
+    // We'll handle this specially in finalizeCroppedImages
+    setTempFiles([{
+      isRecrop: true,
+      originalScreenshotId: screenshot.id,
+      originalCaption: editingScreenshotCaptions[screenshot.id] || screenshot.caption || '',
+      name: screenshot.filename
+    }]);
+    setCurrentCroppingIndex(0);
+  };
+
   const handleUpdateReport = async (e) => {
     e.preventDefault();
 
@@ -707,15 +734,19 @@ function App() {
         screenshots: []
       });
       setScreenshotPreviews([]);
+      setEditingScreenshots([]);
+      setDeletedScreenshotIds([]);
+      setEditingScreenshotCaptions({});
+      setRecropScreenshotId(null);
       setIsEditFormDirty(false);
       setShowEditReportModal(false);
       setEditingReport(null);
-      
+
       // Reset file input
       if (editFileInputRef.current) {
         editFileInputRef.current.value = '';
       }
-      
+
       fetchReports();
       fetchStats();
       fetchProjects();
@@ -1230,19 +1261,51 @@ function App() {
     setShowCropModal(false);
     setCropImageSrc(null);
     setCurrentCroppingIndex(0);
+    const tempFilesCopy = [...tempFiles];
     setTempFiles([]);
     setCropRect({ x: 50, y: 50, width: 200, height: 200 });
 
-    // Create previews
-    const previews = files.map((file, index) => ({
-      file,
-      url: URL.createObjectURL(file),
-      caption: '',
-      index
-    }));
-    
-    setReportForm({ ...reportForm, screenshots: files });
-    setScreenshotPreviews(previews);
+    // Check if this is a re-crop operation
+    if (recropScreenshotId && tempFilesCopy[0]?.isRecrop) {
+      // Mark the old screenshot for deletion
+      setDeletedScreenshotIds([...deletedScreenshotIds, recropScreenshotId]);
+
+      // Remove the old screenshot from editing screenshots list
+      setEditingScreenshots(editingScreenshots.filter(s => s.id !== recropScreenshotId));
+
+      // Add the new cropped image to the report
+      const caption = tempFilesCopy[0].originalCaption || '';
+      const newPreviews = [...screenshotPreviews, {
+        file: files[0],
+        url: URL.createObjectURL(files[0]),
+        caption: caption,
+        index: screenshotPreviews.length
+      }];
+
+      setReportForm({ ...reportForm, screenshots: [...reportForm.screenshots, files[0]] });
+      setScreenshotPreviews(newPreviews);
+
+      // Reset recrop state
+      setRecropScreenshotId(null);
+      setIsEditFormDirty(true);
+    } else {
+      // Normal new screenshot upload
+      const previews = files.map((file, index) => ({
+        file,
+        url: URL.createObjectURL(file),
+        caption: '',
+        index: reportForm.screenshots.length + index
+      }));
+
+      setReportForm({ ...reportForm, screenshots: [...reportForm.screenshots, ...files] });
+      setScreenshotPreviews([...screenshotPreviews, ...previews]);
+
+      if (showEditReportModal) {
+        setIsEditFormDirty(true);
+      } else {
+        setIsReportFormDirty(true);
+      }
+    }
   };
 
   return (
@@ -3496,15 +3559,28 @@ function App() {
                             style={{ fontSize: '0.9rem' }}
                           />
                         </div>
-                        <button
-                          type="button"
-                          className="icon-btn danger"
-                          onClick={() => handleDeleteScreenshot(screenshot.id)}
-                          title="Delete screenshot"
-                          style={{ alignSelf: 'flex-start' }}
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignSelf: 'flex-start' }}>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => handleRecropScreenshot(screenshot)}
+                            title="Re-crop image"
+                            style={{
+                              background: 'rgba(59, 130, 246, 0.1)',
+                              border: '1px solid rgba(59, 130, 246, 0.3)'
+                            }}
+                          >
+                            <Crop size={18} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn danger"
+                            onClick={() => handleDeleteScreenshot(screenshot.id)}
+                            title="Delete screenshot"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
