@@ -508,6 +508,54 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+// ============ GALLERY ROUTES ============
+
+// Get all screenshots with filters for gallery view
+app.get('/api/gallery', async (req, res) => {
+  const { employee_id, start_date, end_date } = req.query;
+
+  let query = `
+    SELECT
+      s.*,
+      e.name as employee_name,
+      e.email as employee_email,
+      r.date as report_date,
+      r.project
+    FROM screenshots s
+    JOIN eod_reports r ON s.report_id = r.id
+    JOIN employees e ON r.employee_id = e.id
+    WHERE 1=1
+  `;
+
+  const params = [];
+  let paramCount = 1;
+
+  if (employee_id) {
+    query += ` AND r.employee_id = $${paramCount++}`;
+    params.push(employee_id);
+  }
+
+  if (start_date) {
+    query += ` AND r.date >= $${paramCount++}`;
+    params.push(start_date);
+  }
+
+  if (end_date) {
+    query += ` AND r.date <= $${paramCount++}`;
+    params.push(end_date);
+  }
+
+  query += ' ORDER BY s.uploaded_at DESC, r.date DESC';
+
+  try {
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Gallery fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============ EXPORT ROUTES ============
 
 app.get('/api/reports/export/csv', async (req, res) => {

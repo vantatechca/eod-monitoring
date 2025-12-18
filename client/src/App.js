@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { 
-  Users, Clock, FileText, Download, Plus, X, 
+import {
+  Users, Clock, FileText, Download, Plus, X,
   Upload, Calendar, Filter, ChevronDown, Trash2,
-  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop
+  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop, Image
 } from 'lucide-react';
 
 // In production on Render, use relative path (same domain)
@@ -44,7 +44,16 @@ function App() {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState([]);
-  
+
+  // Gallery state
+  const [galleryScreenshots, setGalleryScreenshots] = useState([]);
+  const [galleryFilters, setGalleryFilters] = useState({
+    employee_id: '',
+    start_date: '',
+    end_date: ''
+  });
+  const [galleryLoading, setGalleryLoading] = useState(false);
+
   // File input refs
   const fileInputRef = useRef(null);
   const editFileInputRef = useRef(null);
@@ -872,6 +881,29 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchGalleryScreenshots = async () => {
+    try {
+      setGalleryLoading(true);
+      const params = new URLSearchParams();
+      if (galleryFilters.employee_id) params.append('employee_id', galleryFilters.employee_id);
+      if (galleryFilters.start_date) params.append('start_date', galleryFilters.start_date);
+      if (galleryFilters.end_date) params.append('end_date', galleryFilters.end_date);
+
+      const response = await axios.get(`${API_URL}/gallery?${params}`);
+      setGalleryScreenshots(response.data);
+    } catch (error) {
+      console.error('Error fetching gallery:', error);
+      alert('Error loading gallery');
+    } finally {
+      setGalleryLoading(false);
+    }
+  };
+
+  const clearGalleryFilters = () => {
+    setGalleryFilters({ employee_id: '', start_date: '', end_date: '' });
+    setGalleryScreenshots([]);
   };
 
   const handleEmployeeToggle = (empId) => {
@@ -2007,12 +2039,19 @@ function App() {
               <TrendingUp size={18} />
               Analytics
             </button>
-            <button 
+            <button
               className={`nav-tab ${activeTab === 'employees' ? 'active' : ''}`}
               onClick={() => setActiveTab('employees')}
             >
               <Users size={18} />
               Employees
+            </button>
+            <button
+              className={`nav-tab ${activeTab === 'gallery' ? 'active' : ''}`}
+              onClick={() => setActiveTab('gallery')}
+            >
+              <Image size={18} />
+              Gallery
             </button>
           </nav>
           {adminMode && (
@@ -3284,6 +3323,193 @@ function App() {
           </>
         )}
       </div>
+
+        {/* Gallery Tab */}
+        {activeTab === 'gallery' && (
+          <>
+            <div className="section-header">
+              <h2 className="section-title">📸 Image Gallery</h2>
+              <p className="section-subtitle">View all uploaded screenshots with filters</p>
+            </div>
+
+            {/* Filters */}
+            <div className="card" style={{ marginBottom: '2rem' }}>
+              <div className="card-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Filter size={20} />
+                  <h3 style={{ margin: 0 }}>Filters</h3>
+                </div>
+              </div>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '1rem',
+                padding: '1.5rem'
+              }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Employee</label>
+                  <select
+                    className="form-input"
+                    value={galleryFilters.employee_id}
+                    onChange={(e) => setGalleryFilters({...galleryFilters, employee_id: e.target.value})}
+                  >
+                    <option value="">All Employees</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Start Date</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={galleryFilters.start_date}
+                    onChange={(e) => setGalleryFilters({...galleryFilters, start_date: e.target.value})}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">End Date</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={galleryFilters.end_date}
+                    onChange={(e) => setGalleryFilters({...galleryFilters, end_date: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div style={{
+                padding: '0 1.5rem 1.5rem',
+                display: 'flex',
+                gap: '1rem'
+              }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={fetchGalleryScreenshots}
+                  disabled={galleryLoading}
+                >
+                  {galleryLoading ? 'Loading...' : 'Apply Filters'}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={clearGalleryFilters}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            {/* Gallery Grid */}
+            {galleryScreenshots.length > 0 ? (
+              <>
+                <div style={{
+                  marginBottom: '1rem',
+                  color: '#94a3b8',
+                  fontSize: '0.9rem'
+                }}>
+                  Found {galleryScreenshots.length} image{galleryScreenshots.length !== 1 ? 's' : ''}
+                </div>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gap: '1.5rem'
+                }}>
+                  {galleryScreenshots.map((screenshot, index) => (
+                    <div key={screenshot.id} className="card" style={{ overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          position: 'relative',
+                          paddingTop: '75%',
+                          background: 'rgba(15, 20, 40, 0.5)',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => openGallery(galleryScreenshots, index)}
+                      >
+                        <img
+                          src={getImageURL(screenshot.filepath)}
+                          alt={screenshot.filename}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover'
+                          }}
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          top: '0.5rem',
+                          right: '0.5rem',
+                          background: 'rgba(0, 0, 0, 0.7)',
+                          backdropFilter: 'blur(4px)',
+                          padding: '0.25rem 0.5rem',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          color: '#a5b4fc'
+                        }}>
+                          <Eye size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} />
+                          View
+                        </div>
+                      </div>
+                      <div style={{ padding: '1rem' }}>
+                        <div style={{
+                          fontSize: '0.85rem',
+                          fontWeight: '600',
+                          color: '#e8eaf6',
+                          marginBottom: '0.5rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem'
+                        }}>
+                          <Users size={14} />
+                          {screenshot.employee_name}
+                        </div>
+                        {screenshot.caption && (
+                          <div style={{
+                            fontSize: '0.8rem',
+                            color: '#94a3b8',
+                            marginBottom: '0.5rem',
+                            fontStyle: 'italic'
+                          }}>
+                            "{screenshot.caption}"
+                          </div>
+                        )}
+                        <div style={{
+                          fontSize: '0.75rem',
+                          color: '#64748b',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginTop: '0.5rem',
+                          paddingTop: '0.5rem',
+                          borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+                        }}>
+                          <span>{formatDate(screenshot.report_date)}</span>
+                          {screenshot.project && <span>📱 {screenshot.project}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="card" style={{
+                padding: '3rem',
+                textAlign: 'center'
+              }}>
+                <Image size={48} style={{ opacity: 0.3, margin: '0 auto 1rem' }} />
+                <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
+                  {galleryLoading ? 'Loading...' : 'No images found'}
+                </p>
+                <p style={{ color: '#64748b', fontSize: '0.85rem' }}>
+                  {galleryLoading ? '' : 'Select filters and click "Apply Filters" to view images'}
+                </p>
+              </div>
+            )}
+          </>
+        )}
 
       {/* Admin Password Modal */}
       {showAdminPasswordModal && (
