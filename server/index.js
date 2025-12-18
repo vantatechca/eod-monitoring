@@ -5,9 +5,18 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 require('dotenv').config();
 
 const { pool, initializeDatabase } = require('./db');
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -41,48 +50,25 @@ app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Create uploads directory if it doesn't exist
-// Use environment variable for Render disk mount, fallback to local path
-const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log(`📁 Created uploads directory at: ${uploadsDir}`);
-} else {
-  console.log(`📁 Using uploads directory at: ${uploadsDir}`);
-}
-
-// Serve static files (uploaded images) - BEFORE rate limiter
-app.use('/uploads', express.static(uploadsDir));
-
 // Apply rate limiting to API routes only
 app.use('/api', limiter);
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+// Configure Cloudinary storage for multer
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'eod-monitoring',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif'],
+    transformation: [{ quality: 'auto', fetch_format: 'auto' }]
   }
 });
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed!'));
-    }
-  }
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
+
+console.log('☁️  Cloudinary configured for image uploads');
 
 // Initialize Database
 initializeDatabase().catch(err => {
@@ -301,10 +287,12 @@ app.post('/api/reports', upload.array('screenshots', 10), async (req, res) => {
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
         const caption = captionsArray[i] || '';
-        console.log(`📸 Saving screenshot: ${file.filename} for report ${reportId}`);
+        // file.path contains the Cloudinary URL
+        // file.filename contains the Cloudinary public_id
+        console.log(`📸 Saving screenshot to Cloudinary: ${file.filename} for report ${reportId}`);
         await client.query(
           'INSERT INTO screenshots (report_id, filename, filepath, caption) VALUES ($1, $2, $3, $4)',
-          [reportId, file.originalname, file.filename, caption]
+          [reportId, file.originalname, file.path, caption]
         );
       }
     }
@@ -365,11 +353,20 @@ app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) =>
           deletedIds
         );
 
-        // Delete screenshot files from disk
-        screenshotsToDelete.rows.forEach(screenshot => {
-          const filePath = path.join(uploadsDir, screenshot.filepath);
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        // Delete screenshot files from Cloudinary
+        screenshotsToDelete.rows.forEach(async (screenshot) => {
+          try {
+            // Extract public_id from Cloudinary URL
+            // URL format: https://res.cloudinary.com/cloud_name/image/upload/v123456/eod-monitoring/filename.jpg
+            const urlParts = screenshot.filepath.split('/');
+            const filenameWithExt = urlParts[urlParts.length - 1];
+            const filename = filenameWithExt.split('.')[0];
+            const public_id = `eod-monitoring/${filename}`;
+
+            await cloudinary.uploader.destroy(public_id);
+            console.log(`🗑️  Deleted from Cloudinary: ${public_id}`);
+          } catch (err) {
+            console.error(`Error deleting from Cloudinary: ${screenshot.filepath}`, err);
           }
         });
 
@@ -410,9 +407,11 @@ app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) =>
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
         const caption = captionsArray[i] || '';
+        // file.path contains the Cloudinary URL
+        console.log(`📸 Saving screenshot to Cloudinary: ${file.filename} for report ${req.params.id}`);
         await client.query(
           'INSERT INTO screenshots (report_id, filename, filepath, caption) VALUES ($1, $2, $3, $4)',
-          [req.params.id, file.originalname, file.filename, caption]
+          [req.params.id, file.originalname, file.path, caption]
         );
       }
     }
