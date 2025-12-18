@@ -450,13 +450,32 @@ app.delete('/api/reports/:id', async (req, res) => {
       [req.params.id]
     );
 
-    // Delete screenshot files
-    screenshotsResult.rows.forEach(screenshot => {
-      const filePath = path.join(uploadsDir, screenshot.filepath);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+    // Delete screenshot files from Cloudinary or local storage
+    for (const screenshot of screenshotsResult.rows) {
+      try {
+        // Check if it's a Cloudinary URL
+        if (screenshot.filepath && (screenshot.filepath.startsWith('http://') || screenshot.filepath.startsWith('https://'))) {
+          // Delete from Cloudinary
+          const urlParts = screenshot.filepath.split('/');
+          const filenameWithExt = urlParts[urlParts.length - 1];
+          const filename = filenameWithExt.split('.')[0];
+          const public_id = `eod-monitoring/${filename}`;
+
+          await cloudinary.uploader.destroy(public_id);
+          console.log(`🗑️  Deleted from Cloudinary: ${public_id}`);
+        } else {
+          // Delete local file (for backwards compatibility)
+          const filePath = path.join(uploadsDir, screenshot.filepath);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`🗑️  Deleted local file: ${screenshot.filepath}`);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error deleting screenshot: ${screenshot.filepath}`, err.message);
+        // Continue deleting other files even if one fails
       }
-    });
+    }
 
     // Delete report (screenshots will be deleted via CASCADE)
     const result = await client.query('DELETE FROM eod_reports WHERE id = $1', [req.params.id]);
