@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, Plus, Edit, Trash2, Shield, Eye, Calendar, X, AlertCircle } from 'lucide-react';
+import { Users, Plus, Edit, Trash2, Shield, Eye, Calendar, X, AlertCircle, User, Lock, FileText, Clock } from 'lucide-react';
 
 const API_URL = process.env.NODE_ENV === 'production'
   ? '/api'
@@ -497,70 +497,289 @@ const AdminPanel = ({ employees }) => {
       {/* Viewer Access Modal */}
       {showViewerModal && (
         <div className="modal-overlay" onClick={() => setShowViewerModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Create Viewer Access</h3>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header" style={{
+              background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
+              borderBottom: '1px solid rgba(102, 126, 234, 0.2)',
+              padding: '1.5rem',
+              marginBottom: '1.5rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Eye size={24} color="white" />
+                </div>
+                <div>
+                  <h3 className="modal-title" style={{ marginBottom: '0.25rem' }}>Create Viewer Access</h3>
+                  <p style={{ fontSize: '0.85rem', color: '#9fa8da', margin: 0 }}>
+                    Grant temporary read-only access
+                  </p>
+                </div>
+              </div>
               <button className="modal-close" onClick={() => setShowViewerModal(false)}>
                 <X size={24} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateViewerAccess}>
+            <form onSubmit={handleCreateViewerAccess} style={{ padding: '0 1.5rem 1.5rem' }}>
+              {/* Expiration Notice */}
               <div style={{
-                background: 'rgba(59, 130, 246, 0.1)',
-                border: '1px solid rgba(59, 130, 246, 0.3)',
-                borderRadius: '8px',
-                padding: '12px',
-                marginBottom: '20px',
-                fontSize: '0.9rem',
-                color: '#3b82f6'
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                borderRadius: '12px',
+                padding: '1rem',
+                marginBottom: '1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem'
               }}>
-                ℹ️ Viewer access will automatically expire after 3 days
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: 'rgba(99, 102, 241, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <Clock size={20} color="#6366f1" />
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: '0.875rem',
+                    fontWeight: '600',
+                    color: '#e8eaf6',
+                    marginBottom: '0.25rem'
+                  }}>
+                    Auto-Expiring Access
+                  </div>
+                  <div style={{
+                    fontSize: '0.8rem',
+                    color: '#9fa8da',
+                    lineHeight: '1.4'
+                  }}>
+                    Access will automatically expire after 3 days
+                  </div>
+                </div>
               </div>
 
-              <div className="form-group">
-                <label>Username</label>
-                <input
-                  type="text"
-                  value={viewerForm.username}
-                  onChange={(e) => setViewerForm({ ...viewerForm, username: e.target.value })}
-                  required
-                  placeholder="viewer123"
-                />
+              {/* Username Field */}
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '600',
+                  color: '#e8eaf6',
+                  marginBottom: '0.5rem'
+                }}>
+                  Username
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <User size={18} style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9fa8da',
+                    pointerEvents: 'none'
+                  }} />
+                  <input
+                    type="text"
+                    value={viewerForm.username}
+                    onChange={(e) => setViewerForm({ ...viewerForm, username: e.target.value })}
+                    required
+                    placeholder="viewer123"
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem 0.75rem 2.75rem',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#e8eaf6',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#667eea';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    }}
+                  />
+                </div>
               </div>
 
-              <div className="form-group">
-                <label>Password</label>
-                <input
-                  type="password"
-                  value={viewerForm.password}
-                  onChange={(e) => setViewerForm({ ...viewerForm, password: e.target.value })}
-                  required
-                  minLength={6}
-                  placeholder="Minimum 6 characters"
-                />
+              {/* Password Field */}
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '600',
+                  color: '#e8eaf6',
+                  marginBottom: '0.5rem'
+                }}>
+                  Password
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9fa8da',
+                    pointerEvents: 'none'
+                  }} />
+                  <input
+                    type="password"
+                    value={viewerForm.password}
+                    onChange={(e) => setViewerForm({ ...viewerForm, password: e.target.value })}
+                    required
+                    minLength={6}
+                    placeholder="Minimum 6 characters"
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem 0.75rem 2.75rem',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#e8eaf6',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#667eea';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    }}
+                  />
+                </div>
+                <p style={{
+                  fontSize: '0.75rem',
+                  color: '#9fa8da',
+                  marginTop: '0.5rem',
+                  marginBottom: 0
+                }}>
+                  Use a strong password for security
+                </p>
               </div>
 
-              <div className="form-group">
-                <label>Notes (Optional)</label>
-                <textarea
-                  value={viewerForm.notes}
-                  onChange={(e) => setViewerForm({ ...viewerForm, notes: e.target.value })}
-                  placeholder="e.g., Client name or purpose"
-                  rows={3}
-                />
+              {/* Notes Field */}
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '600',
+                  color: '#e8eaf6',
+                  marginBottom: '0.5rem'
+                }}>
+                  Notes <span style={{ color: '#9fa8da', fontWeight: '400' }}>(Optional)</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <FileText size={18} style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '14px',
+                    color: '#9fa8da',
+                    pointerEvents: 'none'
+                  }} />
+                  <textarea
+                    value={viewerForm.notes}
+                    onChange={(e) => setViewerForm({ ...viewerForm, notes: e.target.value })}
+                    placeholder="e.g., Client name or purpose"
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem 0.75rem 2.75rem',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#e8eaf6',
+                      fontSize: '0.95rem',
+                      resize: 'vertical',
+                      fontFamily: 'inherit',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#667eea';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    }}
+                  />
+                </div>
               </div>
 
-              <div className="modal-actions">
+              {/* Action Buttons */}
+              <div className="modal-actions" style={{
+                display: 'flex',
+                gap: '0.75rem',
+                paddingTop: '1rem',
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)'
+              }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setShowViewerModal(false)}
+                  style={{
+                    flex: 1,
+                    padding: '0.875rem 1.5rem',
+                    fontSize: '0.95rem',
+                    fontWeight: '600'
+                  }}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Creating...' : 'Create Viewer Access'}
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={loading}
+                  style={{
+                    flex: 1,
+                    padding: '0.875rem 1.5rem',
+                    fontSize: '0.95rem',
+                    fontWeight: '600',
+                    background: loading
+                      ? 'rgba(102, 126, 234, 0.5)'
+                      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <div style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid rgba(255, 255, 255, 0.3)',
+                        borderTop: '2px solid white',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                      }}></div>
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Eye size={18} />
+                      Create Viewer Access
+                    </>
+                  )}
                 </button>
               </div>
             </form>
