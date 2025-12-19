@@ -3218,21 +3218,23 @@ function App() {
                         }}>
                           Employees
                         </label>
-                        <button
-                          onClick={toggleSelectAllEmployees}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            background: 'transparent',
-                            border: '1px solid rgba(102, 126, 234, 0.4)',
-                            borderRadius: '6px',
-                            color: '#667eea',
-                            fontSize: '0.7rem',
-                            cursor: 'pointer',
-                            fontWeight: 600
-                          }}
-                        >
-                          {analyticsFilters.selected_employees.length === employees.length ? 'Clear' : 'All'}
-                        </button>
+                        {!isEmployee() && (
+                          <button
+                            onClick={toggleSelectAllEmployees}
+                            style={{
+                              padding: '0.25rem 0.5rem',
+                              background: 'transparent',
+                              border: '1px solid rgba(102, 126, 234, 0.4)',
+                              borderRadius: '6px',
+                              color: '#667eea',
+                              fontSize: '0.7rem',
+                              cursor: 'pointer',
+                              fontWeight: 600
+                            }}
+                          >
+                            {analyticsFilters.selected_employees.length === employees.length ? 'Clear' : 'All'}
+                          </button>
+                        )}
                       </div>
                       <div style={{
                         maxHeight: '200px',
@@ -3241,7 +3243,10 @@ function App() {
                         flexDirection: 'column',
                         gap: '0.5rem'
                       }}>
-                        {employees.map(emp => (
+                        {(isEmployee()
+                          ? employees.filter(emp => emp.id === user.employee_id)
+                          : employees
+                        ).map(emp => (
                           <label
                             key={emp.id}
                             style={{
