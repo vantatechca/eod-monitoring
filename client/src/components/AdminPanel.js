@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, Plus, Edit, Trash2, Shield, Eye, Calendar, X, AlertCircle, User, Lock, FileText, Clock } from 'lucide-react';
+import { Users, Plus, Edit, Trash2, Shield, Eye, Calendar, X, AlertCircle, User, Lock, FileText, Clock, EyeOff, Key } from 'lucide-react';
 
 const API_URL = process.env.NODE_ENV === 'production'
   ? '/api'
@@ -28,6 +28,11 @@ const AdminPanel = ({ employees }) => {
     password: '',
     notes: ''
   });
+
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordResetUser, setPasswordResetUser] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -173,6 +178,36 @@ const AdminPanel = ({ employees }) => {
     setShowUserModal(true);
   };
 
+  const openPasswordResetModal = (user) => {
+    setPasswordResetUser(user);
+    setNewPassword('');
+    setShowPassword(true);
+    setShowPasswordModal(true);
+  };
+
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
+
+    try {
+      await axios.put(`${API_URL}/admin/users/${passwordResetUser.id}`, {
+        password: newPassword
+      }, {
+        withCredentials: true
+      });
+      setSuccess(`Password reset successfully for ${passwordResetUser.username}!`);
+      setShowPasswordModal(false);
+      setNewPassword('');
+      setShowPassword(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to reset password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isExpired = (expiresAt) => {
     return new Date(expiresAt) < new Date();
   };
@@ -312,6 +347,14 @@ const AdminPanel = ({ employees }) => {
                         style={{ color: '#67e8f9' }}
                       >
                         <Edit size={18} />
+                      </button>
+                      <button
+                        className="icon-btn"
+                        onClick={() => openPasswordResetModal(user)}
+                        title="Reset password"
+                        style={{ color: '#fbbf24' }}
+                      >
+                        <Key size={18} />
                       </button>
                       <button
                         className="icon-btn danger"
@@ -778,6 +821,267 @@ const AdminPanel = ({ employees }) => {
                     <>
                       <Eye size={18} />
                       Create Viewer Access
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {showPasswordModal && passwordResetUser && (
+        <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+            <div className="modal-header" style={{
+              background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, rgba(245, 158, 11, 0.1) 100%)',
+              borderBottom: '1px solid rgba(251, 191, 36, 0.2)',
+              padding: '1.5rem',
+              marginBottom: '1.5rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Key size={24} color="white" />
+                </div>
+                <div>
+                  <h3 className="modal-title" style={{ marginBottom: '0.25rem' }}>Reset Password</h3>
+                  <p style={{ fontSize: '0.85rem', color: '#9fa8da', margin: 0 }}>
+                    Set new password for {passwordResetUser.username}
+                  </p>
+                </div>
+              </div>
+              <button className="modal-close" onClick={() => setShowPasswordModal(false)}>
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handlePasswordReset} style={{ padding: '0 1.5rem 1.5rem' }}>
+              {/* Warning Notice */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.1) 100%)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '12px',
+                padding: '1rem',
+                marginBottom: '1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem'
+              }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <AlertCircle size={20} color="#ef4444" />
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: '0.875rem',
+                    fontWeight: '600',
+                    color: '#e8eaf6',
+                    marginBottom: '0.25rem'
+                  }}>
+                    Security Notice
+                  </div>
+                  <div style={{
+                    fontSize: '0.8rem',
+                    color: '#9fa8da',
+                    lineHeight: '1.4'
+                  }}>
+                    The user will need to use this new password to login
+                  </div>
+                </div>
+              </div>
+
+              {/* User Info */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                borderRadius: '8px',
+                padding: '1rem',
+                marginBottom: '1.5rem'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '0.5rem'
+                }}>
+                  <span style={{ color: '#9fa8da', fontSize: '0.85rem' }}>Username:</span>
+                  <span style={{ color: '#e8eaf6', fontWeight: '600' }}>{passwordResetUser.username}</span>
+                </div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span style={{ color: '#9fa8da', fontSize: '0.85rem' }}>Role:</span>
+                  <span style={{
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '12px',
+                    fontSize: '0.85rem',
+                    background: passwordResetUser.role === 'admin' ? 'rgba(239, 68, 68, 0.2)' :
+                               passwordResetUser.role === 'employee' ? 'rgba(59, 130, 246, 0.2)' :
+                               'rgba(156, 163, 175, 0.2)',
+                    color: passwordResetUser.role === 'admin' ? '#ef4444' :
+                           passwordResetUser.role === 'employee' ? '#3b82f6' :
+                           '#9ca3af',
+                    textTransform: 'capitalize'
+                  }}>
+                    {passwordResetUser.role}
+                  </span>
+                </div>
+              </div>
+
+              {/* New Password Field */}
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: '600',
+                  color: '#e8eaf6',
+                  marginBottom: '0.5rem'
+                }}>
+                  New Password
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9fa8da',
+                    pointerEvents: 'none',
+                    zIndex: 1
+                  }} />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    placeholder="Enter new password"
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 3rem 0.75rem 2.75rem',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#e8eaf6',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#fbbf24';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '14px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#9fa8da',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'color 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#e8eaf6'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#9fa8da'}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <p style={{
+                  fontSize: '0.75rem',
+                  color: '#9fa8da',
+                  marginTop: '0.5rem',
+                  marginBottom: 0
+                }}>
+                  Minimum 6 characters • Make sure to save this password securely
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="modal-actions" style={{
+                display: 'flex',
+                gap: '0.75rem',
+                paddingTop: '1rem',
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)'
+              }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowPasswordModal(false)}
+                  style={{
+                    flex: 1,
+                    padding: '0.875rem 1.5rem',
+                    fontSize: '0.95rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={loading}
+                  style={{
+                    flex: 1,
+                    padding: '0.875rem 1.5rem',
+                    fontSize: '0.95rem',
+                    fontWeight: '600',
+                    background: loading
+                      ? 'rgba(251, 191, 36, 0.5)'
+                      : 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <div style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid rgba(255, 255, 255, 0.3)',
+                        borderTop: '2px solid white',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                      }}></div>
+                      Resetting...
+                    </>
+                  ) : (
+                    <>
+                      <Key size={18} />
+                      Reset Password
                     </>
                   )}
                 </button>
