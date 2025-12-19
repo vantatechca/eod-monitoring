@@ -10,6 +10,9 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 require('dotenv').config();
 
 const { pool, initDB } = require('./db-postgres');
+const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+const auth = require('./auth');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -53,6 +56,23 @@ app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// Session configuration
+app.use(session({
+  store: new pgSession({
+    pool: pool,
+    tableName: 'session'
+  }),
+  secret: process.env.SESSION_SECRET || 'your-secret-key-change-this-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    sameSite: 'lax'
+  }
+}));
+
 // Apply rate limiting to API routes only
 app.use('/api', limiter);
 
@@ -77,6 +97,376 @@ console.log('☁️  Cloudinary configured for image uploads');
 initDB().catch(err => {
   console.error('Failed to initialize database:', err);
   process.exit(1);
+});
+
+// ============ AUTHENTICATION ROUTES ============
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    // Get user from database
+    const result = await pool.query(
+      `SELECT u.*, e.name as employee_name, e.email as employee_email, e.role as employee_role
+       FROM users u
+       LEFT JOIN employees e ON u.employee_id = e.id
+       WHERE u.username = $1 AND u.is_active = TRUE`,
+      [username]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = result.rows[0];
+
+    // Verify password
+    const validPassword = await auth.comparePassword(password, user.password_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Check viewer access validity
+    if (user.role === 'viewer') {
+      const isValid = await auth.isViewerAccessValid(user.id, pool);
+      if (!isValid) {
+        return res.status(403).json({ error: 'Viewer access expired or revoked' });
+      }
+    }
+
+    // Store user info in session
+    req.session.user = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      employee_id: user.employee_id,
+      employee_name: user.employee_name,
+      employee_email: user.employee_email,
+      employee_role: user.employee_role
+    };
+
+    res.json({
+      user: req.session.user
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy(err => {
+    if (err) {
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    res.clearCookie('connect.sid');
+    res.json({ message: 'Logged out successfully' });
+  });
+});
+
+// Get current user
+app.get('/api/auth/me', auth.requireAuth, (req, res) => {
+  res.json({ user: req.session.user });
+});
+
+// Change password (authenticated users)
+app.post('/api/auth/change-password', auth.requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Get current user's password hash
+    const result = await pool.query(
+      'SELECT password_hash FROM users WHERE id = $1',
+      [req.session.user.id]
+    );
+
+    // Verify current password
+    const validPassword = await auth.comparePassword(currentPassword, result.rows[0].password_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const newPasswordHash = await auth.hashPassword(newPassword);
+
+    // Update password
+    await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      [newPasswordHash, req.session.user.id]
+    );
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('Password change error:', err);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// ============ ADMIN ROUTES ============
+
+// Create user (admin only)
+app.post('/api/admin/users', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { username, password, role, employee_id } = req.body;
+
+    if (!username || !password || !role) {
+      return res.status(400).json({ error: 'Username, password, and role required' });
+    }
+
+    if (!['admin', 'employee', 'viewer'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    if (role === 'employee' && !employee_id) {
+      return res.status(400).json({ error: 'Employee ID required for employee role' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Hash password
+    const passwordHash = await auth.hashPassword(password);
+
+    // Create user
+    const result = await pool.query(
+      `INSERT INTO users (username, password_hash, role, employee_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, username, role, employee_id, created_at`,
+      [username, passwordHash, role, employee_id || null]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create user error:', err);
+    if (err.code === '23505') { // Unique violation
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+// Get all users (admin only)
+app.get('/api/admin/users', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT u.id, u.username, u.role, u.employee_id, u.is_active, u.created_at,
+             e.name as employee_name, e.email as employee_email
+      FROM users u
+      LEFT JOIN employees e ON u.employee_id = e.id
+      ORDER BY u.created_at DESC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get users error:', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Update user (admin only)
+app.put('/api/admin/users/:id', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username, password, role, employee_id, is_active } = req.body;
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (username !== undefined) {
+      updates.push(`username = $${paramCount++}`);
+      values.push(username);
+    }
+
+    if (password) {
+      const passwordHash = await auth.hashPassword(password);
+      updates.push(`password_hash = $${paramCount++}`);
+      values.push(passwordHash);
+    }
+
+    if (role !== undefined) {
+      if (!['admin', 'employee', 'viewer'].includes(role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+      }
+      updates.push(`role = $${paramCount++}`);
+      values.push(role);
+    }
+
+    if (employee_id !== undefined) {
+      updates.push(`employee_id = $${paramCount++}`);
+      values.push(employee_id || null);
+    }
+
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${paramCount++}`);
+      values.push(is_active);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update user error:', err);
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/admin/users/:id', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent deleting yourself
+    if (parseInt(id) === req.session.user.id) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    console.error('Delete user error:', err);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// Create viewer access (admin only)
+app.post('/api/admin/viewer-access', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { username, password, notes } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Create viewer user
+      const passwordHash = await auth.hashPassword(password);
+      const userResult = await client.query(
+        `INSERT INTO users (username, password_hash, role)
+         VALUES ($1, $2, 'viewer')
+         RETURNING id`,
+        [username, passwordHash]
+      );
+
+      const userId = userResult.rows[0].id;
+
+      // Create viewer access record (expires in 3 days)
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 3);
+
+      await client.query(
+        `INSERT INTO viewer_access (user_id, expires_at, created_by, notes)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, expiresAt, req.session.user.id, notes || null]
+      );
+
+      await client.query('COMMIT');
+
+      res.status(201).json({
+        message: 'Viewer access created',
+        username,
+        expires_at: expiresAt
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Create viewer access error:', err);
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create viewer access' });
+  }
+});
+
+// Get all viewer accesses (admin only)
+app.get('/api/admin/viewer-access', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT va.*, u.username,
+             creator.username as created_by_username
+      FROM viewer_access va
+      JOIN users u ON va.user_id = u.id
+      JOIN users creator ON va.created_by = creator.id
+      ORDER BY va.created_at DESC
+    `);
+
+    // Add status to each access
+    const accesses = result.rows.map(access => ({
+      ...access,
+      status: access.revoked_at ? 'revoked' :
+              new Date(access.expires_at) < new Date() ? 'expired' : 'active'
+    }));
+
+    res.json(accesses);
+  } catch (err) {
+    console.error('Get viewer access error:', err);
+    res.status(500).json({ error: 'Failed to fetch viewer accesses' });
+  }
+});
+
+// Revoke viewer access (admin only)
+app.put('/api/admin/viewer-access/:id/revoke', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `UPDATE viewer_access SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Viewer access not found' });
+    }
+
+    res.json({ message: 'Viewer access revoked', access: result.rows[0] });
+  } catch (err) {
+    console.error('Revoke viewer access error:', err);
+    res.status(500).json({ error: 'Failed to revoke viewer access' });
+  }
 });
 
 // ============ EMPLOYEE ROUTES ============
