@@ -3,8 +3,11 @@ import axios from 'axios';
 import {
   Users, Clock, FileText, Download, Plus, X,
   Upload, Calendar, Filter, ChevronDown, Trash2,
-  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop, Image
+  Eye, BarChart3, TrendingUp, CheckSquare, ChevronLeft, ChevronRight, Edit, Crop, Image, LogOut, Shield
 } from 'lucide-react';
+import { useAuth } from './contexts/AuthContext';
+import Login from './components/Login';
+import AdminPanel from './components/AdminPanel';
 
 // In production on Render, use relative path (same domain)
 // In development, use localhost
@@ -37,7 +40,13 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString('en-US', options);
 };
 
+// Configure axios to send credentials with all requests
+axios.defaults.withCredentials = true;
+
 function App() {
+  // Authentication
+  const { user, loading: authLoading, logout, isAdmin, isEmployee, isViewer } = useAuth();
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [employees, setEmployees] = useState([]);
   const [reports, setReports] = useState([]);
@@ -1377,6 +1386,46 @@ function App() {
     }
   };
 
+  // Show loading spinner while checking authentication
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      }}>
+        <div style={{
+          textAlign: 'center',
+          color: 'white'
+        }}>
+          <div style={{
+            width: '50px',
+            height: '50px',
+            border: '4px solid rgba(255, 255, 255, 0.3)',
+            borderTop: '4px solid white',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 20px'
+          }}></div>
+          <p style={{ fontSize: '18px', fontWeight: '500' }}>Loading...</p>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!user) {
+    return <Login />;
+  }
+
   return (
     <div className="app">
       <style>{`
@@ -2032,20 +2081,31 @@ function App() {
               <FileText size={18} />
               Reports
             </button>
-            <button 
+            <button
               className={`nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
               onClick={() => setActiveTab('analytics')}
             >
               <TrendingUp size={18} />
               Analytics
             </button>
-            <button
-              className={`nav-tab ${activeTab === 'employees' ? 'active' : ''}`}
-              onClick={() => setActiveTab('employees')}
-            >
-              <Users size={18} />
-              Employees
-            </button>
+            {isAdmin() && (
+              <>
+                <button
+                  className={`nav-tab ${activeTab === 'admin' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('admin')}
+                >
+                  <Shield size={18} />
+                  Admin
+                </button>
+                <button
+                  className={`nav-tab ${activeTab === 'employees' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('employees')}
+                >
+                  <Users size={18} />
+                  Employees
+                </button>
+              </>
+            )}
             <button
               className={`nav-tab ${activeTab === 'gallery' ? 'active' : ''}`}
               onClick={() => setActiveTab('gallery')}
@@ -2086,6 +2146,62 @@ function App() {
               </button>
             </div>
           )}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            marginLeft: 'auto',
+            padding: '0.5rem 1rem',
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '8px',
+            border: '1px solid rgba(255, 255, 255, 0.1)'
+          }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{
+                fontSize: '0.9rem',
+                fontWeight: '600',
+                color: '#e8eaf6'
+              }}>
+                {user.employee_name || user.username}
+              </div>
+              <div style={{
+                fontSize: '0.75rem',
+                color: '#9fa8da',
+                textTransform: 'capitalize'
+              }}>
+                {user.role}
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#ef4444',
+                padding: '0.5rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'rgba(239, 68, 68, 0.2)';
+                e.target.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'rgba(239, 68, 68, 0.1)';
+                e.target.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+              }}
+              title="Logout"
+            >
+              <LogOut size={16} />
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -2145,16 +2261,18 @@ function App() {
 
             <div className="section-header">
               <h2 className="section-title">Recent EOD Reports</h2>
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <button className="btn btn-secondary" onClick={handleQuickAddClick}>
-                  <Clock size={18} />
-                  Quick Add
-                </button>
-                <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
-                  <Plus size={18} />
-                  New Report
-                </button>
-              </div>
+              {!isViewer() && (
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button className="btn btn-secondary" onClick={handleQuickAddClick}>
+                    <Clock size={18} />
+                    Quick Add
+                  </button>
+                  <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
+                    <Plus size={18} />
+                    New Report
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Productivity Insights Widget */}
@@ -2306,35 +2424,39 @@ function App() {
                         >
                           <Eye size={18} />
                         </button>
-                        {isReportEditable(report) ? (
-                          <button
-                            className="icon-btn"
-                            onClick={() => handleEditReport(report)}
-                            title="Edit report"
-                            style={{ color: '#67e8f9' }}
-                          >
-                            <Edit size={18} />
-                          </button>
-                        ) : (
-                          <button
-                            className="icon-btn"
-                            onClick={() => {
-                              setReportToEditAfterAuth(report);
-                              setShowAdminPasswordModal(true);
-                            }}
-                            title="Report locked (older than 3 days) - Click to enter admin password"
-                            style={{ opacity: 0.5, color: '#f59e0b' }}
-                          >
-                            <Edit size={18} />
-                          </button>
+                        {!isViewer() && (
+                          <>
+                            {isReportEditable(report) ? (
+                              <button
+                                className="icon-btn"
+                                onClick={() => handleEditReport(report)}
+                                title="Edit report"
+                                style={{ color: '#67e8f9' }}
+                              >
+                                <Edit size={18} />
+                              </button>
+                            ) : (
+                              <button
+                                className="icon-btn"
+                                onClick={() => {
+                                  setReportToEditAfterAuth(report);
+                                  setShowAdminPasswordModal(true);
+                                }}
+                                title="Report locked (older than 3 days) - Click to enter admin password"
+                                style={{ opacity: 0.5, color: '#f59e0b' }}
+                              >
+                                <Edit size={18} />
+                              </button>
+                            )}
+                            <button
+                              className="icon-btn danger"
+                              onClick={() => handleDeleteReport(report.id)}
+                              title="Delete report"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </>
                         )}
-                        <button 
-                          className="icon-btn danger"
-                          onClick={() => handleDeleteReport(report.id)}
-                          title="Delete report"
-                        >
-                          <Trash2 size={18} />
-                        </button>
                       </div>
                     </div>
                     <div className="report-details">
@@ -2465,11 +2587,13 @@ function App() {
                     List
                   </button>
                 </div>
-                
-                <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
-                  <Plus size={18} />
-                  New Report
-                </button>
+
+                {!isViewer() && (
+                  <button className="btn btn-primary" onClick={() => setShowReportModal(true)}>
+                    <Plus size={18} />
+                    New Report
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2564,35 +2688,39 @@ function App() {
                           >
                             <Eye size={18} />
                           </button>
-                          {isReportEditable(report) ? (
-                            <button
-                              className="icon-btn"
-                              onClick={() => handleEditReport(report)}
-                              title="Edit report (within 3 days)"
-                              style={{ color: '#67e8f9' }}
-                            >
-                              <Edit size={18} />
-                            </button>
-                          ) : (
-                            <button
-                              className="icon-btn"
-                              onClick={() => {
-                                setReportToEditAfterAuth(report);
-                                setShowAdminPasswordModal(true);
-                              }}
-                              title="Report locked (older than 3 days) - Click to enter admin password"
-                              style={{ opacity: 0.5, color: '#f59e0b' }}
-                            >
-                              <Edit size={18} />
-                            </button>
+                          {!isViewer() && (
+                            <>
+                              {isReportEditable(report) ? (
+                                <button
+                                  className="icon-btn"
+                                  onClick={() => handleEditReport(report)}
+                                  title="Edit report (within 3 days)"
+                                  style={{ color: '#67e8f9' }}
+                                >
+                                  <Edit size={18} />
+                                </button>
+                              ) : (
+                                <button
+                                  className="icon-btn"
+                                  onClick={() => {
+                                    setReportToEditAfterAuth(report);
+                                    setShowAdminPasswordModal(true);
+                                  }}
+                                  title="Report locked (older than 3 days) - Click to enter admin password"
+                                  style={{ opacity: 0.5, color: '#f59e0b' }}
+                                >
+                                  <Edit size={18} />
+                                </button>
+                              )}
+                              <button
+                                className="icon-btn danger"
+                                onClick={() => handleDeleteReport(report.id)}
+                                title="Delete report"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </>
                           )}
-                          <button 
-                            className="icon-btn danger"
-                            onClick={() => handleDeleteReport(report.id)}
-                            title="Delete report"
-                          >
-                            <Trash2 size={18} />
-                          </button>
                         </div>
                       </div>
                       <div className="report-details">
@@ -2883,35 +3011,39 @@ function App() {
                               >
                                 <Eye size={18} />
                               </button>
-                              {isReportEditable(report) ? (
-                                <button
-                                  className="icon-btn"
-                                  onClick={() => handleEditReport(report)}
-                                  title="Edit report"
-                                  style={{ color: '#67e8f9' }}
-                                >
-                                  <Edit size={18} />
-                                </button>
-                              ) : (
-                                <button
-                                  className="icon-btn"
-                                  onClick={() => {
-                                    setReportToEditAfterAuth(report);
-                                    setShowAdminPasswordModal(true);
-                                  }}
-                                  title="Report locked (older than 3 days) - Click to enter admin password"
-                                  style={{ opacity: 0.5, color: '#f59e0b' }}
-                                >
-                                  <Edit size={18} />
-                                </button>
+                              {!isViewer() && (
+                                <>
+                                  {isReportEditable(report) ? (
+                                    <button
+                                      className="icon-btn"
+                                      onClick={() => handleEditReport(report)}
+                                      title="Edit report"
+                                      style={{ color: '#67e8f9' }}
+                                    >
+                                      <Edit size={18} />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      className="icon-btn"
+                                      onClick={() => {
+                                        setReportToEditAfterAuth(report);
+                                        setShowAdminPasswordModal(true);
+                                      }}
+                                      title="Report locked (older than 3 days) - Click to enter admin password"
+                                      style={{ opacity: 0.5, color: '#f59e0b' }}
+                                    >
+                                      <Edit size={18} />
+                                    </button>
+                                  )}
+                                  <button
+                                    className="icon-btn danger"
+                                    onClick={() => handleDeleteReport(report.id)}
+                                    title="Delete report"
+                                  >
+                                    <Trash2 size={18} />
+                                  </button>
+                                </>
                               )}
-                              <button 
-                                className="icon-btn danger"
-                                onClick={() => handleDeleteReport(report.id)}
-                                title="Delete report"
-                              >
-                                <Trash2 size={18} />
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -3626,6 +3758,11 @@ function App() {
             </div>
             {/* End Two-column Layout */}
           </>
+        )}
+
+        {/* Admin Tab */}
+        {activeTab === 'admin' && isAdmin() && (
+          <AdminPanel employees={employees} />
         )}
 
         {/* Employees Tab */}
