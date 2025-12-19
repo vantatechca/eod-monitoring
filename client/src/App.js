@@ -170,15 +170,20 @@ function App() {
   const [screenshotPreviews, setScreenshotPreviews] = useState([]);
 
   useEffect(() => {
-    fetchEmployees();
-    fetchReports();
-    fetchStats();
-    fetchProjects();
-  }, []);
+    // Only fetch data if user is authenticated
+    if (user) {
+      fetchEmployees();
+      fetchReports();
+      fetchStats();
+      fetchProjects();
+    }
+  }, [user]);
 
   useEffect(() => {
-    fetchReports();
-  }, [filters]);
+    if (user) {
+      fetchReports();
+    }
+  }, [filters, user]);
 
   useEffect(() => {
     if (employees.length > 0) {
@@ -192,10 +197,10 @@ function App() {
 
   // Auto-calculate analytics when filters change
   useEffect(() => {
-    if (activeTab === 'analytics' && (analyticsFilters.selected_employees.length > 0 || analyticsFilters.selected_projects.length > 0)) {
+    if (user && activeTab === 'analytics' && (analyticsFilters.selected_employees.length > 0 || analyticsFilters.selected_projects.length > 0)) {
       fetchAnalytics();
     }
-  }, [analyticsFilters.selected_employees, analyticsFilters.selected_projects, analyticsFilters.start_date, analyticsFilters.end_date, activeTab]);
+  }, [analyticsFilters.selected_employees, analyticsFilters.selected_projects, analyticsFilters.start_date, analyticsFilters.end_date, activeTab, user]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
