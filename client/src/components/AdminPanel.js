@@ -33,6 +33,7 @@ const AdminPanel = ({ employees }) => {
   const [passwordResetUser, setPasswordResetUser] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -89,16 +90,25 @@ const AdminPanel = ({ employees }) => {
     setLoading(true);
 
     try {
-      await axios.put(`${API_URL}/admin/users/${editingUser.id}`, {
+      const updateData = {
+        username: userForm.username,
         is_active: userForm.is_active,
         role: userForm.role,
         employee_id: userForm.employee_id || null
-      }, {
+      };
+
+      // Only include password if it was provided
+      if (userForm.password && userForm.password.trim() !== '') {
+        updateData.password = userForm.password;
+      }
+
+      await axios.put(`${API_URL}/admin/users/${editingUser.id}`, updateData, {
         withCredentials: true
       });
       setSuccess('User updated successfully!');
       setShowUserModal(false);
       setEditingUser(null);
+      setShowEditPassword(false);
       fetchUsers();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update user');
@@ -165,16 +175,19 @@ const AdminPanel = ({ employees }) => {
     setEditingUser(user);
     setUserForm({
       username: user.username,
+      password: '', // Empty password - only fill if changing
       role: user.role,
       employee_id: user.employee_id || '',
       is_active: user.is_active
     });
+    setShowEditPassword(false);
     setShowUserModal(true);
   };
 
   const openCreateModal = () => {
     setEditingUser(null);
     setUserForm({ username: '', password: '', role: 'employee', employee_id: '' });
+    setShowEditPassword(false);
     setShowUserModal(true);
   };
 
@@ -343,18 +356,10 @@ const AdminPanel = ({ employees }) => {
                       <button
                         className="icon-btn"
                         onClick={() => openEditModal(user)}
-                        title="Edit user"
+                        title="Edit user (username & password)"
                         style={{ color: '#67e8f9' }}
                       >
                         <Edit size={18} />
-                      </button>
-                      <button
-                        className="icon-btn"
-                        onClick={() => openPasswordResetModal(user)}
-                        title="Reset password"
-                        style={{ color: '#fbbf24' }}
-                      >
-                        <Key size={18} />
                       </button>
                       <button
                         className="icon-btn danger"
@@ -455,27 +460,119 @@ const AdminPanel = ({ employees }) => {
             <form onSubmit={editingUser ? handleUpdateUser : handleCreateUser}>
               <div className="form-group">
                 <label>Username</label>
-                <input
-                  type="text"
-                  value={userForm.username}
-                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
-                  required
-                  disabled={editingUser}
-                />
-              </div>
-
-              {!editingUser && (
-                <div className="form-group">
-                  <label>Password</label>
+                <div style={{ position: 'relative' }}>
+                  <User size={18} style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9fa8da',
+                    pointerEvents: 'none'
+                  }} />
                   <input
-                    type="password"
-                    value={userForm.password}
-                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                    type="text"
+                    value={userForm.username}
+                    onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
                     required
-                    minLength={6}
+                    placeholder="Enter username"
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem 0.75rem 2.75rem',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#e8eaf6',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#667eea';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    }}
                   />
                 </div>
-              )}
+              </div>
+
+              <div className="form-group">
+                <label>
+                  Password {editingUser && <span style={{ color: '#9fa8da', fontWeight: '400' }}>(Leave blank to keep current)</span>}
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9fa8da',
+                    pointerEvents: 'none',
+                    zIndex: 1
+                  }} />
+                  <input
+                    type={showEditPassword ? 'text' : 'password'}
+                    value={userForm.password}
+                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                    required={!editingUser}
+                    minLength={6}
+                    placeholder={editingUser ? 'Enter new password (optional)' : 'Enter password'}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 3rem 0.75rem 2.75rem',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      color: '#e8eaf6',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#667eea';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '14px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#9fa8da',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'color 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#e8eaf6'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#9fa8da'}
+                    title={showEditPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                {!editingUser && (
+                  <p style={{
+                    fontSize: '0.75rem',
+                    color: '#9fa8da',
+                    marginTop: '0.5rem',
+                    marginBottom: 0
+                  }}>
+                    Minimum 6 characters
+                  </p>
+                )}
+              </div>
 
               <div className="form-group">
                 <label>Role</label>
