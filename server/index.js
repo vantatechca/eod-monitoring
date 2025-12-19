@@ -471,8 +471,8 @@ app.put('/api/admin/viewer-access/:id/revoke', auth.requireRole('admin'), async 
 
 // ============ EMPLOYEE ROUTES ============
 
-// Get all employees
-app.get('/api/employees', async (req, res) => {
+// Get all employees (authenticated users)
+app.get('/api/employees', auth.requireAuth, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM employees ORDER BY name');
     res.json(result.rows);
@@ -481,8 +481,8 @@ app.get('/api/employees', async (req, res) => {
   }
 });
 
-// Get single employee
-app.get('/api/employees/:id', async (req, res) => {
+// Get single employee (authenticated users)
+app.get('/api/employees/:id', auth.requireAuth, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM employees WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) {
@@ -494,8 +494,8 @@ app.get('/api/employees/:id', async (req, res) => {
   }
 });
 
-// Create new employee
-app.post('/api/employees', async (req, res) => {
+// Create new employee (admin only)
+app.post('/api/employees', auth.requireRole('admin'), async (req, res) => {
   const { name, email, role, hourly_rate } = req.body;
 
   if (!name || !email || !role) {
@@ -516,8 +516,8 @@ app.post('/api/employees', async (req, res) => {
   }
 });
 
-// Update employee
-app.put('/api/employees/:id', async (req, res) => {
+// Update employee (admin only)
+app.put('/api/employees/:id', auth.requireRole('admin'), async (req, res) => {
   const { name, email, role, hourly_rate } = req.body;
 
   try {
@@ -535,8 +535,8 @@ app.put('/api/employees/:id', async (req, res) => {
   }
 });
 
-// Delete employee
-app.delete('/api/employees/:id', async (req, res) => {
+// Delete employee (admin only)
+app.delete('/api/employees/:id', auth.requireRole('admin'), async (req, res) => {
   try {
     const result = await pool.query('DELETE FROM employees WHERE id = $1', [req.params.id]);
     if (result.rowCount === 0) {
@@ -550,8 +550,8 @@ app.delete('/api/employees/:id', async (req, res) => {
 
 // ============ EOD REPORT ROUTES ============
 
-// Get all reports with filters
-app.get('/api/reports', async (req, res) => {
+// Get all reports with filters (authenticated users)
+app.get('/api/reports', auth.requireAuth, async (req, res) => {
   const { employee_id, start_date, end_date, project } = req.query;
 
   let query = `
@@ -568,7 +568,12 @@ app.get('/api/reports', async (req, res) => {
   const params = [];
   let paramCount = 1;
 
-  if (employee_id) {
+  // Employees can only see their own reports
+  if (req.session.user.role === 'employee') {
+    query += ` AND r.employee_id = $${paramCount++}`;
+    params.push(req.session.user.employee_id);
+  } else if (employee_id) {
+    // Admin and viewers can filter by employee
     query += ` AND r.employee_id = $${paramCount++}`;
     params.push(employee_id);
   }
@@ -648,12 +653,22 @@ app.get('/api/reports/:id', async (req, res) => {
   }
 });
 
-// Create new EOD report with screenshots
-app.post('/api/reports', upload.array('screenshots', 10), async (req, res) => {
+// Create new EOD report with screenshots (authenticated users)
+app.post('/api/reports', auth.requireAuth, upload.array('screenshots', 10), async (req, res) => {
   const { employee_id, date, hours, project, description, captions } = req.body;
 
   if (!employee_id || !date || !hours) {
     return res.status(400).json({ error: 'Employee ID, date, and hours are required' });
+  }
+
+  // Employees can only create reports for themselves
+  if (req.session.user.role === 'employee' && parseInt(employee_id) !== req.session.user.employee_id) {
+    return res.status(403).json({ error: 'You can only create reports for yourself' });
+  }
+
+  // Viewers cannot create reports
+  if (req.session.user.role === 'viewer') {
+    return res.status(403).json({ error: 'Viewers cannot create reports' });
   }
 
   const client = await pool.connect();
@@ -710,8 +725,11 @@ app.post('/api/reports', upload.array('screenshots', 10), async (req, res) => {
   }
 });
 
-// Update report
-app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) => {
+// Update report (auth required, with edit permission check)
+app.put('/api/reports/:id', auth.requireAuth, upload.array('screenshots', 10), async (req, res, next) => {
+  // Check permission before proceeding
+  await auth.canEditReport(req, res, next, pool);
+}, async (req, res) => {
   const { employee_id, date, hours, project, description, captions, deleted_screenshot_ids, updated_captions } = req.body;
 
   const client = await pool.connect();
@@ -831,7 +849,10 @@ app.put('/api/reports/:id', upload.array('screenshots', 10), async (req, res) =>
 });
 
 // Delete report
-app.delete('/api/reports/:id', async (req, res) => {
+app.delete('/api/reports/:id', auth.requireAuth, async (req, res, next) => {
+  // Check permission before proceeding
+  await auth.canEditReport(req, res, next, pool);
+}, async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -890,11 +911,18 @@ app.delete('/api/reports/:id', async (req, res) => {
 
 // ============ STATISTICS ROUTES ============
 
-app.get('/api/projects', async (req, res) => {
+app.get('/api/projects', auth.requireAuth, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT DISTINCT project FROM eod_reports WHERE project IS NOT NULL AND project != \'\' ORDER BY project'
-    );
+    let query = 'SELECT DISTINCT project FROM eod_reports WHERE project IS NOT NULL AND project != \'\'';
+
+    // Employees only see their own projects
+    if (req.session.user.role === 'employee') {
+      query += ` AND employee_id = ${req.session.user.employee_id}`;
+    }
+
+    query += ' ORDER BY project';
+
+    const result = await pool.query(query);
     const projects = result.rows.map(row => row.project);
     res.json(projects);
   } catch (err) {
@@ -902,12 +930,25 @@ app.get('/api/projects', async (req, res) => {
   }
 });
 
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', auth.requireAuth, async (req, res) => {
   try {
     const employeesResult = await pool.query('SELECT COUNT(*) as count FROM employees');
-    const reportsResult = await pool.query('SELECT COUNT(*) as count FROM eod_reports');
-    const hoursResult = await pool.query('SELECT SUM(hours) as total FROM eod_reports');
-    const todayResult = await pool.query('SELECT COUNT(*) as count FROM eod_reports WHERE date = CURRENT_DATE');
+
+    let reportsQuery = 'SELECT COUNT(*) as count FROM eod_reports';
+    let hoursQuery = 'SELECT SUM(hours) as total FROM eod_reports';
+    let todayQuery = 'SELECT COUNT(*) as count FROM eod_reports WHERE date = CURRENT_DATE';
+
+    // Employees only see their own stats
+    if (req.session.user.role === 'employee') {
+      const employeeFilter = ` WHERE employee_id = ${req.session.user.employee_id}`;
+      reportsQuery += employeeFilter;
+      hoursQuery += employeeFilter;
+      todayQuery += ` AND employee_id = ${req.session.user.employee_id}`;
+    }
+
+    const reportsResult = await pool.query(reportsQuery);
+    const hoursResult = await pool.query(hoursQuery);
+    const todayResult = await pool.query(todayQuery);
 
     res.json({
       totalEmployees: parseInt(employeesResult.rows[0].count),
@@ -922,8 +963,8 @@ app.get('/api/stats', async (req, res) => {
 
 // ============ GALLERY ROUTES ============
 
-// Get all screenshots with filters for gallery view
-app.get('/api/gallery', async (req, res) => {
+// Get all screenshots with filters for gallery view (authenticated users)
+app.get('/api/gallery', auth.requireAuth, async (req, res) => {
   const { employee_id, start_date, end_date } = req.query;
 
   let query = `
@@ -942,7 +983,12 @@ app.get('/api/gallery', async (req, res) => {
   const params = [];
   let paramCount = 1;
 
-  if (employee_id) {
+  // Employees can only see their own gallery
+  if (req.session.user.role === 'employee') {
+    query += ` AND r.employee_id = $${paramCount++}`;
+    params.push(req.session.user.employee_id);
+  } else if (employee_id) {
+    // Admin and viewers can filter by employee
     query += ` AND r.employee_id = $${paramCount++}`;
     params.push(employee_id);
   }
