@@ -2927,203 +2927,327 @@ function App() {
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (
           <>
-            <div className="section-header">
-              <h2 className="section-title">Analytics Dashboard</h2>
-            </div>
+            {/* Two-column Layout: Sidebar + Main Content */}
+            <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
 
-            {/* Compact Filters Bar */}
-            <div style={{
-              background: 'rgba(15, 20, 40, 0.95)',
-              padding: '1.5rem',
-              borderRadius: '16px',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              marginBottom: '2rem'
-            }}>
+              {/* Left Sidebar - Filters */}
               <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: '1rem',
-                marginBottom: '1rem'
+                width: '280px',
+                flexShrink: 0,
+                position: 'sticky',
+                top: '2rem'
               }}>
-                {/* Employee Filter */}
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: '#a5b4fc',
-                    marginBottom: '0.5rem'
+                <div style={{
+                  background: 'rgba(15, 20, 40, 0.95)',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  overflow: 'hidden'
+                }}>
+                  {/* Sidebar Header */}
+                  <div style={{
+                    padding: '1.25rem',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                    background: 'rgba(102, 126, 234, 0.1)'
                   }}>
-                    Employees
-                  </label>
-                  <select
-                    multiple
-                    value={analyticsFilters.selected_employees}
-                    onChange={(e) => {
-                      const options = Array.from(e.target.selectedOptions, option => option.value);
-                      setAnalyticsFilters({...analyticsFilters, selected_employees: options});
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      background: 'rgba(15, 20, 40, 0.8)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      borderRadius: '10px',
-                      color: '#fff',
-                      fontSize: '0.95rem',
-                      minHeight: '120px'
-                    }}
-                  >
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id.toString()}>
-                        {emp.name} ({emp.role})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={toggleSelectAllEmployees}
-                    style={{
-                      marginTop: '0.5rem',
-                      width: '100%',
-                      padding: '0.5rem',
-                      background: 'rgba(102, 126, 234, 0.2)',
-                      border: '1px solid rgba(102, 126, 234, 0.3)',
-                      borderRadius: '8px',
-                      color: '#c7d2fe',
-                      fontSize: '0.85rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    {analyticsFilters.selected_employees.length === employees.length ? 'Clear All' : 'Select All'}
-                  </button>
-                </div>
+                    <h3 style={{
+                      margin: 0,
+                      fontSize: '1.1rem',
+                      fontWeight: 700,
+                      color: '#fff'
+                    }}>
+                      Filters
+                    </h3>
+                  </div>
 
-                {/* Project Filter */}
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: '#a5b4fc',
-                    marginBottom: '0.5rem'
-                  }}>
-                    Projects/Apps
-                  </label>
-                  <select
-                    multiple
-                    value={analyticsFilters.selected_projects}
-                    onChange={(e) => {
-                      const options = Array.from(e.target.selectedOptions, option => option.value);
-                      setAnalyticsFilters({...analyticsFilters, selected_projects: options});
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      background: 'rgba(15, 20, 40, 0.8)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      borderRadius: '10px',
-                      color: '#fff',
-                      fontSize: '0.95rem',
-                      minHeight: '120px'
-                    }}
-                  >
-                    {projects.map(proj => (
-                      <option key={proj} value={proj}>
-                        📱 {proj}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={toggleSelectAllProjects}
-                    style={{
-                      marginTop: '0.5rem',
-                      width: '100%',
-                      padding: '0.5rem',
-                      background: 'rgba(102, 126, 234, 0.2)',
-                      border: '1px solid rgba(102, 126, 234, 0.3)',
-                      borderRadius: '8px',
-                      color: '#c7d2fe',
-                      fontSize: '0.85rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    {analyticsFilters.selected_projects.length === projects.length ? 'Clear All' : 'Select All'}
-                  </button>
-                </div>
+                  <div style={{ padding: '1.25rem' }}>
+                    {/* Quick Date Ranges */}
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: '#a5b4fc',
+                        marginBottom: '0.75rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Date Range
+                      </label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {['This Week', 'This Month', 'Last Month', 'Last 3 Months', 'All Time'].map(range => (
+                          <button
+                            key={range}
+                            onClick={() => {
+                              const today = new Date();
+                              let start_date = '';
+                              let end_date = '';
 
-                {/* Date Filters */}
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: '#a5b4fc',
-                    marginBottom: '0.5rem'
-                  }}>
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    value={analyticsFilters.start_date}
-                    onChange={(e) => setAnalyticsFilters({...analyticsFilters, start_date: e.target.value})}
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      background: 'rgba(15, 20, 40, 0.8)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      borderRadius: '10px',
-                      color: '#fff',
-                      fontSize: '0.95rem'
-                    }}
-                  />
-                </div>
+                              if (range === 'This Week') {
+                                const day = today.getDay();
+                                const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+                                start_date = new Date(today.setDate(diff)).toISOString().split('T')[0];
+                                end_date = new Date().toISOString().split('T')[0];
+                              } else if (range === 'This Month') {
+                                start_date = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+                                end_date = new Date().toISOString().split('T')[0];
+                              } else if (range === 'Last Month') {
+                                start_date = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
+                                end_date = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().split('T')[0];
+                              } else if (range === 'Last 3 Months') {
+                                start_date = new Date(today.getFullYear(), today.getMonth() - 3, 1).toISOString().split('T')[0];
+                                end_date = new Date().toISOString().split('T')[0];
+                              }
 
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: '#a5b4fc',
-                    marginBottom: '0.5rem'
-                  }}>
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    value={analyticsFilters.end_date}
-                    onChange={(e) => setAnalyticsFilters({...analyticsFilters, end_date: e.target.value})}
-                    style={{
-                      width: '100%',
-                      padding: '0.75rem',
-                      background: 'rgba(15, 20, 40, 0.8)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      borderRadius: '10px',
-                      color: '#fff',
-                      fontSize: '0.95rem'
-                    }}
-                  />
+                              setAnalyticsFilters({...analyticsFilters, start_date, end_date});
+                            }}
+                            style={{
+                              padding: '0.6rem 0.75rem',
+                              background: (!analyticsFilters.start_date && !analyticsFilters.end_date && range === 'All Time') ||
+                                         (analyticsFilters.start_date && analyticsFilters.end_date) ?
+                                         'rgba(102, 126, 234, 0.15)' : 'transparent',
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
+                              borderRadius: '8px',
+                              color: '#c7d2fe',
+                              fontSize: '0.9rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              textAlign: 'left'
+                            }}
+                          >
+                            {range}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Custom Date Inputs */}
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        color: '#a5b4fc',
+                        marginBottom: '0.5rem'
+                      }}>
+                        Custom Range
+                      </label>
+                      <input
+                        type="date"
+                        value={analyticsFilters.start_date}
+                        onChange={(e) => setAnalyticsFilters({...analyticsFilters, start_date: e.target.value})}
+                        placeholder="Start"
+                        style={{
+                          width: '100%',
+                          padding: '0.6rem',
+                          background: 'rgba(15, 20, 40, 0.8)',
+                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          borderRadius: '8px',
+                          color: '#fff',
+                          fontSize: '0.85rem',
+                          marginBottom: '0.5rem'
+                        }}
+                      />
+                      <input
+                        type="date"
+                        value={analyticsFilters.end_date}
+                        onChange={(e) => setAnalyticsFilters({...analyticsFilters, end_date: e.target.value})}
+                        placeholder="End"
+                        style={{
+                          width: '100%',
+                          padding: '0.6rem',
+                          background: 'rgba(15, 20, 40, 0.8)',
+                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          borderRadius: '8px',
+                          color: '#fff',
+                          fontSize: '0.85rem'
+                        }}
+                      />
+                    </div>
+
+                    {/* Employees Filter */}
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '0.75rem'
+                      }}>
+                        <label style={{
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          color: '#a5b4fc',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>
+                          Employees
+                        </label>
+                        <button
+                          onClick={toggleSelectAllEmployees}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            background: 'transparent',
+                            border: '1px solid rgba(102, 126, 234, 0.4)',
+                            borderRadius: '6px',
+                            color: '#667eea',
+                            fontSize: '0.7rem',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                          }}
+                        >
+                          {analyticsFilters.selected_employees.length === employees.length ? 'Clear' : 'All'}
+                        </button>
+                      </div>
+                      <div style={{
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}>
+                        {employees.map(emp => (
+                          <label
+                            key={emp.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.6rem',
+                              padding: '0.5rem',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              background: analyticsFilters.selected_employees.includes(emp.id.toString())
+                                ? 'rgba(102, 126, 234, 0.15)'
+                                : 'transparent',
+                              transition: 'background 0.2s'
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={analyticsFilters.selected_employees.includes(emp.id.toString())}
+                              onChange={() => handleEmployeeToggle(emp.id)}
+                              style={{
+                                width: '16px',
+                                height: '16px',
+                                cursor: 'pointer',
+                                accentColor: '#667eea'
+                              }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: '0.85rem',
+                                color: '#fff',
+                                fontWeight: 500,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {emp.name}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: '#a5b4fc' }}>
+                                {emp.role}
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Projects Filter */}
+                    <div>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '0.75rem'
+                      }}>
+                        <label style={{
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          color: '#a5b4fc',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>
+                          Projects
+                        </label>
+                        <button
+                          onClick={toggleSelectAllProjects}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            background: 'transparent',
+                            border: '1px solid rgba(102, 126, 234, 0.4)',
+                            borderRadius: '6px',
+                            color: '#667eea',
+                            fontSize: '0.7rem',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                          }}
+                        >
+                          {analyticsFilters.selected_projects.length === projects.length ? 'Clear' : 'All'}
+                        </button>
+                      </div>
+                      <div style={{
+                        maxHeight: '150px',
+                        overflowY: 'auto',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}>
+                        {projects.length === 0 ? (
+                          <div style={{
+                            fontSize: '0.85rem',
+                            color: '#a5b4fc',
+                            padding: '1rem',
+                            textAlign: 'center'
+                          }}>
+                            No projects
+                          </div>
+                        ) : projects.map(proj => (
+                          <label
+                            key={proj}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.6rem',
+                              padding: '0.5rem',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              background: analyticsFilters.selected_projects.includes(proj)
+                                ? 'rgba(102, 126, 234, 0.15)'
+                                : 'transparent',
+                              transition: 'background 0.2s'
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={analyticsFilters.selected_projects.includes(proj)}
+                              onChange={() => handleProjectToggle(proj)}
+                              style={{
+                                width: '16px',
+                                height: '16px',
+                                cursor: 'pointer',
+                                accentColor: '#667eea'
+                              }}
+                            />
+                            <div style={{
+                              fontSize: '0.85rem',
+                              color: '#fff',
+                              fontWeight: 500,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              flex: 1
+                            }}>
+                              {proj}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Filter Summary */}
-              <div style={{
-                padding: '0.75rem 1rem',
-                background: 'rgba(102, 126, 234, 0.1)',
-                borderRadius: '10px',
-                fontSize: '0.9rem',
-                color: '#c7d2fe',
-                display: 'flex',
-                gap: '1rem',
-                flexWrap: 'wrap'
-              }}>
-                <span><strong>{analyticsFilters.selected_employees.length}</strong> employee(s)</span>
-                {analyticsFilters.selected_projects.length > 0 && <span><strong>{analyticsFilters.selected_projects.length}</strong> project(s)</span>}
-                {analyticsFilters.start_date && <span>From <strong>{analyticsFilters.start_date}</strong></span>}
-                {analyticsFilters.end_date && <span>To <strong>{analyticsFilters.end_date}</strong></span>}
-              </div>
-            </div>
+              {/* Right Side - Main Content */}
+              <div style={{ flex: 1, minWidth: 0 }}>
 
             {loading ? (
               <div className="loading">Calculating analytics...</div>
@@ -3496,6 +3620,11 @@ function App() {
                 )}
               </>
             )}
+              </div>
+              {/* End Right Side - Main Content */}
+
+            </div>
+            {/* End Two-column Layout */}
           </>
         )}
 
