@@ -1263,10 +1263,35 @@ function App() {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
 
-    // Calculate scale between displayed image and natural size
+    // Get the displayed image element
     const displayedImg = cropImageRef.current;
-    const scaleX = naturalSize.width / displayedImg.width;
-    const scaleY = naturalSize.height / displayedImg.height;
+    if (!displayedImg) {
+      console.error('Image ref not found');
+      throw new Error('Image reference not available');
+    }
+
+    // Get displayed dimensions
+    const displayedWidth = displayedImg.clientWidth || displayedImg.width;
+    const displayedHeight = displayedImg.clientHeight || displayedImg.height;
+
+    if (!displayedWidth || !displayedHeight) {
+      console.error('Could not get displayed image dimensions');
+      throw new Error('Image dimensions not available');
+    }
+
+    // Calculate scale between displayed image and natural size
+    const scaleX = naturalSize.width / displayedWidth;
+    const scaleY = naturalSize.height / displayedHeight;
+
+    console.log('Crop Info:', {
+      displayedWidth,
+      displayedHeight,
+      naturalWidth: naturalSize.width,
+      naturalHeight: naturalSize.height,
+      scaleX,
+      scaleY,
+      cropRect
+    });
 
     // Scale crop coordinates to natural image size
     const scaledCrop = {
@@ -1275,6 +1300,14 @@ function App() {
       width: cropRect.width * scaleX,
       height: cropRect.height * scaleY
     };
+
+    // Ensure crop is within bounds
+    scaledCrop.x = Math.max(0, Math.min(scaledCrop.x, naturalSize.width - scaledCrop.width));
+    scaledCrop.y = Math.max(0, Math.min(scaledCrop.y, naturalSize.height - scaledCrop.height));
+    scaledCrop.width = Math.min(scaledCrop.width, naturalSize.width - scaledCrop.x);
+    scaledCrop.height = Math.min(scaledCrop.height, naturalSize.height - scaledCrop.y);
+
+    console.log('Scaled Crop:', scaledCrop);
 
     canvas.width = scaledCrop.width;
     canvas.height = scaledCrop.height;
@@ -1291,8 +1324,13 @@ function App() {
       scaledCrop.height
     );
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
+        if (!blob) {
+          console.error('Canvas toBlob failed');
+          reject(new Error('Failed to create blob from canvas'));
+          return;
+        }
         resolve(blob);
       }, 'image/jpeg', 0.95);
     });
@@ -1300,7 +1338,16 @@ function App() {
 
   const handleCropSave = async () => {
     try {
+      console.log('Starting crop save...', {
+        cropImageSrc,
+        cropRect,
+        imageNaturalSize
+      });
+
       const croppedBlob = await getCroppedImg(cropImageSrc, cropRect, imageNaturalSize);
+
+      console.log('Cropped blob created:', croppedBlob.size, 'bytes');
+
       const croppedFile = new File([croppedBlob], tempFiles[currentCroppingIndex].name, {
         type: 'image/jpeg'
       });
@@ -1309,6 +1356,8 @@ function App() {
       const updatedFiles = [...tempFiles];
       updatedFiles[currentCroppingIndex] = croppedFile;
       setTempFiles(updatedFiles);
+
+      console.log('Crop saved successfully');
 
       // Move to next image or finish
       if (currentCroppingIndex < tempFiles.length - 1) {
@@ -1324,6 +1373,7 @@ function App() {
       }
     } catch (error) {
       console.error('Error cropping image:', error);
+      alert(`Failed to crop image: ${error.message}. Please try again or skip this image.`);
     }
   };
 
