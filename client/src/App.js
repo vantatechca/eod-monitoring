@@ -1253,6 +1253,21 @@ function App() {
       image.src = url;
     });
 
+  // Helper to safely create a File object with better browser compatibility
+  const createFileFromBlob = (blob, fileName) => {
+    try {
+      // Try the standard File constructor first
+      return new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+    } catch (error) {
+      // Fallback for browsers that don't support File constructor
+      // Create a blob with name and lastModified properties
+      const fileBlob = blob;
+      fileBlob.name = fileName;
+      fileBlob.lastModified = Date.now();
+      return fileBlob;
+    }
+  };
+
   const getCroppedImg = async (imageSrc, cropRect, naturalSize) => {
     // Validate inputs
     if (!cropImageRef.current) {
@@ -1325,9 +1340,7 @@ function App() {
       }
 
       const fileName = tempFiles[currentCroppingIndex].name || 'cropped-image.jpg';
-      const croppedFile = new File([croppedBlob], fileName, {
-        type: 'image/jpeg'
-      });
+      const croppedFile = createFileFromBlob(croppedBlob, fileName);
 
       // Replace the file at current index with cropped version
       const updatedFiles = [...tempFiles];
