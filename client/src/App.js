@@ -1254,9 +1254,22 @@ function App() {
     });
 
   const getCroppedImg = async (imageSrc, cropRect, naturalSize) => {
+    // Validate inputs
+    if (!cropImageRef.current) {
+      throw new Error('Image reference not available');
+    }
+
+    if (!naturalSize || naturalSize.width === 0 || naturalSize.height === 0) {
+      throw new Error('Image not fully loaded. Please wait a moment and try again');
+    }
+
     const image = await createImage(imageSrc);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      throw new Error('Failed to get canvas context');
+    }
 
     // Calculate scale between displayed image and natural size
     const displayedImg = cropImageRef.current;
@@ -1299,8 +1312,20 @@ function App() {
 
   const handleCropSave = async () => {
     try {
+      // Validate we have a file to crop
+      if (!tempFiles || !tempFiles[currentCroppingIndex]) {
+        throw new Error('No file available to crop');
+      }
+
       const croppedBlob = await getCroppedImg(cropImageSrc, cropRect, imageNaturalSize);
-      const croppedFile = new File([croppedBlob], tempFiles[currentCroppingIndex].name, {
+
+      // Validate blob before creating File
+      if (!croppedBlob) {
+        throw new Error('Failed to generate cropped image');
+      }
+
+      const fileName = tempFiles[currentCroppingIndex].name || 'cropped-image.jpg';
+      const croppedFile = new File([croppedBlob], fileName, {
         type: 'image/jpeg'
       });
 
