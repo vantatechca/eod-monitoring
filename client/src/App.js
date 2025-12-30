@@ -1248,18 +1248,37 @@ function App() {
     new Promise((resolve, reject) => {
       const image = new Image();
       image.addEventListener('load', () => resolve(image));
-      image.addEventListener('error', (error) => reject(error));
-      image.setAttribute('crossOrigin', 'anonymous');
+      image.addEventListener('error', (error) => {
+        // Create a more informative error message
+        reject(new Error('Failed to load image. This may be due to CORS restrictions.'));
+      });
+      // Only set crossOrigin for cross-origin URLs to avoid CORS issues with local files
+      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        image.setAttribute('crossOrigin', 'anonymous');
+      }
       image.src = url;
     });
 
   const getCroppedImg = async (imageSrc, cropRect, naturalSize) => {
+    // Validate inputs before processing
+    if (!cropImageRef.current) {
+      throw new Error('Image not loaded yet. Please wait and try again.');
+    }
+
+    const displayedImg = cropImageRef.current;
+    if (!displayedImg.width || !displayedImg.height) {
+      throw new Error('Image dimensions not available. Please wait for image to load.');
+    }
+
+    if (!naturalSize || !naturalSize.width || !naturalSize.height) {
+      throw new Error('Image natural size not available. Please wait for image to load.');
+    }
+
     const image = await createImage(imageSrc);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
 
     // Calculate scale between displayed image and natural size
-    const displayedImg = cropImageRef.current;
     const scaleX = naturalSize.width / displayedImg.width;
     const scaleY = naturalSize.height / displayedImg.height;
 
@@ -1274,35 +1293,60 @@ function App() {
     canvas.width = scaledCrop.width;
     canvas.height = scaledCrop.height;
 
-    ctx.drawImage(
-      image,
-      scaledCrop.x,
-      scaledCrop.y,
-      scaledCrop.width,
-      scaledCrop.height,
-      0,
-      0,
-      scaledCrop.width,
-      scaledCrop.height
-    );
+    try {
+      ctx.drawImage(
+        image,
+        scaledCrop.x,
+        scaledCrop.y,
+        scaledCrop.width,
+        scaledCrop.height,
+        0,
+        0,
+        scaledCrop.width,
+        scaledCrop.height
+      );
+    } catch (error) {
+      throw new Error('Failed to draw image to canvas. The image may be from a different origin.');
+    }
 
     return new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error('Failed to create blob from canvas'));
-        }
-      }, 'image/jpeg', 0.95);
+      try {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to create blob from canvas. The image may be cross-origin protected.'));
+          }
+        }, 'image/jpeg', 0.95);
+      } catch (error) {
+        reject(new Error('Canvas is tainted by cross-origin data. Cannot export image.'));
+      }
     });
   };
 
   const handleCropSave = async () => {
     try {
+      // Validate tempFiles before proceeding
+      if (!tempFiles || !tempFiles.length || currentCroppingIndex >= tempFiles.length) {
+        throw new Error('No image to crop. Please try again.');
+      }
+
+      const currentFile = tempFiles[currentCroppingIndex];
+      if (!currentFile || !currentFile.name) {
+        throw new Error('Invalid file data. Please try again.');
+      }
+
       const croppedBlob = await getCroppedImg(cropImageSrc, cropRect, imageNaturalSize);
-      const croppedFile = new File([croppedBlob], tempFiles[currentCroppingIndex].name, {
+      const croppedFile = new File([croppedBlob], currentFile.name, {
         type: 'image/jpeg'
       });
+
+      // Preserve recrop metadata if present
+      if (currentFile.isRecrop) {
+        croppedFile.isRecrop = true;
+        croppedFile.originalScreenshotId = currentFile.originalScreenshotId;
+        croppedFile.originalCaption = currentFile.originalCaption;
+      }
 
       // Replace the file at current index with cropped version
       const updatedFiles = [...tempFiles];
@@ -1313,7 +1357,11 @@ function App() {
       if (currentCroppingIndex < tempFiles.length - 1) {
         // Crop next image
         const nextFile = updatedFiles[currentCroppingIndex + 1];
-        setCropImageSrc(URL.createObjectURL(nextFile));
+        // Handle both File objects and recrop placeholder objects
+        const nextSrc = nextFile instanceof File
+          ? URL.createObjectURL(nextFile)
+          : (nextFile.isRecrop ? cropImageSrc : URL.createObjectURL(nextFile));
+        setCropImageSrc(nextSrc);
         setCurrentCroppingIndex(currentCroppingIndex + 1);
         // Reset crop rectangle to center
         setCropRect({ x: 50, y: 50, width: 200, height: 200 });
@@ -1331,7 +1379,11 @@ function App() {
     // Skip current image, move to next
     if (currentCroppingIndex < tempFiles.length - 1) {
       const nextFile = tempFiles[currentCroppingIndex + 1];
-      setCropImageSrc(URL.createObjectURL(nextFile));
+      // Handle both File objects and recrop placeholder objects
+      const nextSrc = nextFile instanceof File
+        ? URL.createObjectURL(nextFile)
+        : (nextFile.isRecrop ? cropImageSrc : URL.createObjectURL(nextFile));
+      setCropImageSrc(nextSrc);
       setCurrentCroppingIndex(currentCroppingIndex + 1);
       setCropRect({ x: 50, y: 50, width: 200, height: 200 });
     } else {
@@ -1344,12 +1396,13 @@ function App() {
     setShowCropModal(false);
     setCropImageSrc(null);
     setCurrentCroppingIndex(0);
-    const tempFilesCopy = [...tempFiles];
     setTempFiles([]);
     setCropRect({ x: 50, y: 50, width: 200, height: 200 });
 
-    // Check if this is a re-crop operation
-    if (recropScreenshotId && tempFilesCopy[0]?.isRecrop) {
+    // Check if this is a re-crop operation (check both the passed files and recropScreenshotId state)
+    const isRecropOperation = recropScreenshotId && files.length > 0 && files[0]?.isRecrop;
+
+    if (isRecropOperation) {
       // Mark the old screenshot for deletion
       setDeletedScreenshotIds([...deletedScreenshotIds, recropScreenshotId]);
 
@@ -1357,7 +1410,7 @@ function App() {
       setEditingScreenshots(editingScreenshots.filter(s => s.id !== recropScreenshotId));
 
       // Add the new cropped image to the report
-      const caption = tempFilesCopy[0].originalCaption || '';
+      const caption = files[0].originalCaption || '';
       const newPreviews = [...screenshotPreviews, {
         file: files[0],
         url: URL.createObjectURL(files[0]),
