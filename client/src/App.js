@@ -1286,9 +1286,13 @@ function App() {
       scaledCrop.height
     );
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
-        resolve(blob);
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Failed to create blob from canvas'));
+        }
       }, 'image/jpeg', 0.95);
     });
   };
@@ -1319,6 +1323,7 @@ function App() {
       }
     } catch (error) {
       console.error('Error cropping image:', error);
+      alert(`Failed to crop image: ${error.message}. Please try again or skip this image.`);
     }
   };
 
